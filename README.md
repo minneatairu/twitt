@@ -17,7 +17,7 @@ Do not prefix either variable with `NEXT_PUBLIC_` or expose it in frontend code.
 
 Each browser request fetches one X page (up to 100 candidates), with the search cursor passed explicitly to the next request. There are no background threads, database, shared process state, or durable jobs. This works across Vercel function instances and keeps each request bounded. A slow X request can still time out; failures stop collection without automatic retries.
 
-The browser collects and ranks results per month, renders a paginated preview of text, author, date, engagement, images, and video previews, then generates the CSV locally. Completed months become visible while later months are still collecting. A failed collection does not generate a complete CSV. Earlier completed months remain visible. Keep the tab open during collection. Results disappear on refresh, closing the tab, or starting another search; download the CSV to keep them. There is no saved-results history or shareable dataset URL.
+The browser collects results per month in X’s response order, renders a paginated preview of text, author, date, engagement, images, and video previews, then generates the CSV locally. Completed months become visible while later months are still collecting. A failed collection does not generate a complete CSV. Earlier completed months remain visible. Keep the tab open during collection. Results disappear on refresh, closing the tab, or starting another search; download the CSV to keep them. There is no saved-results history or shareable dataset URL.
 
 The app password protects searches, not the static home page. This is a private research tool with a shared password, not a public multi-user service. Use Vercel Deployment Protection as an additional access control where available. Anyone with your app password can use your API allowance.
 
@@ -34,11 +34,11 @@ python3 app.py
 
 The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can override it. `APP_PASSWORD` is optional locally and mandatory when `VERCEL` is set. `.env` files are not loaded automatically. Never commit secrets. `/api/index` reports token presence and whether an access password is required, without exposing values.
 
-## Search and ranking
+## Search and result order
 
 Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. X search operators pass through unchanged. Select an inclusive month range of up to 24 months. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
 
-For each month, the app requests full-archive results in X relevance order, up to your candidate limit (500 by default; optionally 1,000, 2,500, or 5,000). It deduplicates IDs and ranks candidates by **likes + reposts + replies + quotes**, keeping up to 500 per month. Ties use publication time and ID. This is a bounded sample, not a guaranteed global top 500. Engagement reflects collection time, not the selected historical month. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows. Increasing search depth increases API usage and may improve coverage.
+For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it has up to 500 unique posts or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV have the same order, grouped by month from earliest to latest. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
 
 Failures stop collection without retries to avoid unexpected duplicate charges. Retrying starts a new search and can consume additional allowance. A present token alone does not establish valid permissions or credits.
 
@@ -57,4 +57,4 @@ python3 -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-Backend tests use simulated X responses for calendar boundaries, pagination, metadata, ranking, CSV escaping, access control, and stateless search. Browser checks additionally exercise multi-month previews, images, show-more pagination, and the actual generated CSV download. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.
+Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, access control, and stateless search. Browser checks additionally exercise multi-month previews, images, show-more pagination, and the actual generated CSV download. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.

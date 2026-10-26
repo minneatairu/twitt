@@ -143,7 +143,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
             seen_tokens.add(next_token)
             if len(posts) < budget:
                 pause(1.1)
-        selected = sorted(posts.values(), key=lambda p: (score(p), p.get('created_at', ''), p['id']), reverse=True)[:500]
+        selected = list(posts.values())[:500]
         rows.extend(to_row(post, users, month, media) for post in selected)
         summary.append({'month': month, 'candidates': len(posts), 'exported': len(selected), 'exhausted': exhausted})
         pause(1.1)

@@ -30,7 +30,7 @@ with sync_playwright() as p:
  rows=list(csv.DictReader(io.StringIO(open(d.value.path(),encoding='utf-8-sig').read())))
  assert len(rows)==26
  assert rows[0]['text']=="'=formula, café\n<script>"
- assert rows[0]['engagement_score']=='24'
+ assert rows[0]['engagement_score']=='0'
  assert len({row['month'] for row in rows})==2
  page.screenshot(path='/tmp/twitt-vercel-desktop.png',full_page=True)
  page.set_viewport_size({'width':390,'height':844})

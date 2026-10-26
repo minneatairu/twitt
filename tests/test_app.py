@@ -26,7 +26,7 @@ class CollectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.validate({'query': '#test', 'start': '2024-01', 'end': '2024-01', 'candidates': 999})
 
-    def test_pagination_deduplication_ranking_and_media(self):
+    def test_pagination_preserves_x_order_with_deduplication_and_media(self):
         calls = []
         def fetch(params):
             calls.append(params)
@@ -39,11 +39,11 @@ class CollectionTests(unittest.TestCase):
                                  'media': [{'media_key': 'photo', 'type': 'photo', 'url': 'https://pbs.twimg.com/media/example.jpg', 'alt_text': 'A test image'},
                                            {'media_key': 'video', 'type': 'video', 'preview_image_url': 'https://pbs.twimg.com/media/preview.jpg'}]}}
         rows, summary = app.collect('#test', app.month_bounds('2024-01', '2024-01'), 500, lambda _: None, fetch, lambda _: None)
-        self.assertEqual([r['id'] for r in rows], ['2', '1'])
-        self.assertEqual(rows[0]['engagement_score'], 11)
-        self.assertEqual(rows[0]['username'], 'researcher')
-        self.assertEqual(len(json.loads(rows[0]['images'])), 2)
-        self.assertEqual(json.loads(rows[0]['media'])[0]['alt_text'], 'A test image')
+        self.assertEqual([r['id'] for r in rows], ['1', '2'])
+        self.assertEqual(rows[1]['engagement_score'], 11)
+        self.assertEqual(rows[1]['username'], 'researcher')
+        self.assertEqual(len(json.loads(rows[1]['images'])), 2)
+        self.assertEqual(json.loads(rows[1]['media'])[0]['alt_text'], 'A test image')
         self.assertEqual(rows[0]['impressions'], '')
         self.assertEqual(summary[0]['exported'], 2)
         self.assertTrue(summary[0]['exhausted'])
@@ -59,8 +59,8 @@ class CollectionTests(unittest.TestCase):
         rows, summary = app.collect('test', app.month_bounds('2024-01', '2024-02'), 1000, lambda _: None, fetch, lambda _: None)
         self.assertEqual(len(rows), 1000)
         self.assertEqual([m['exported'] for m in summary], [500, 500])
-        self.assertEqual(rows[0]['id'], 'extra')
-        self.assertEqual(rows[500]['id'], 'extra')
+        self.assertEqual(rows[0]['id'], '0')
+        self.assertEqual(rows[500]['id'], '0')
 
     def test_partial_api_errors_are_not_success(self):
         with self.assertRaisesRegex(ValueError, 'incomplete'):
