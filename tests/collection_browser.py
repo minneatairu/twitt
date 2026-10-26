@@ -78,8 +78,32 @@ with sync_playwright() as p:
     assert len(searches) == 0 and len(creates) == 0
     page.fill('#month-1', months[1])
     page.click('#submit')
-    page.wait_for_function('() => document.querySelector("#collection-title").disabled')
-    assert page.locator('#collection-title').is_disabled()
+    page.wait_for_function('async () => Boolean(await CollectionStore.load())')
+    assert page.locator('#collection-title').is_enabled()
+    assert page.locator('#query').is_enabled()
+    page.fill('#collection-title', '')
+    page.fill('#query', '')
+    assert page.locator('#collection-title').is_enabled() and page.locator('#query').is_enabled()
+    page.fill('#collection-title', 'Draft collection title')
+    page.fill('#query', '#climate OR #wind')
+    assert 'Apply collection settings' in page.locator('#submit').inner_text()
+    page.click('#submit')
+    page.wait_for_function('async () => (await CollectionStore.load()).title === "Draft collection title"')
+    assert len(searches) == 0 and len(creates) == 0
+    page.fill('#collection-title', 'Climate research collection')
+    page.fill('#query', '#climate')
+    page.click('#submit')
+    page.wait_for_function('async () => (await CollectionStore.load()).title === "Climate research collection"')
+    assert all(page.locator('#month-' + str(i)).is_enabled() for i in range(4))
+    # Starting the collection does not freeze dates that have not been searched.
+    page.fill('#month-3', '2024-05')
+    page.locator('#month-3').blur()
+    page.wait_for_function('async () => (await CollectionStore.load()).slots[3].month === "2024-05"')
+    page.wait_for_function('() => !document.querySelector("#month-3").disabled')
+    page.fill('#month-3', '')
+    page.locator('#month-3').blur()
+    page.wait_for_function('async () => (await CollectionStore.load()).slots[3].month === ""')
+    assert len(searches) == 0 and len(creates) == 0
     assert page.locator('[data-slot="1"]').is_disabled()
 
     # Declining Google must not consume any X searches or mark a month as saved.
@@ -102,6 +126,19 @@ with sync_playwright() as p:
     assert writes[1]['body']['values'][0][0] == 'Climate research collection'
     assert page.locator('#gallery img').first.get_attribute('alt') == 'Post image'
     assert page.locator('[data-slot="0"]').is_disabled()
+    assert page.locator('#month-0').is_disabled()
+    assert page.locator('#month-1').is_enabled()
+    assert page.locator('#month-2').is_enabled()
+    # Editing a started query is allowed, but it cannot silently change the existing dataset.
+    page.fill('#query', '#different-research-query')
+    assert 'Start new collection' in page.locator('#submit').inner_text()
+    assert page.locator('[data-slot="1"]').is_disabled()
+    page.once('dialog', lambda dialog: dialog.dismiss())
+    page.click('#submit')
+    assert page.evaluate('async () => (await CollectionStore.load()).query') == '#climate'
+    assert len(searches) == 1 and len(creates) == 1
+    page.fill('#query', '#climate')
+    assert page.locator('[data-slot="1"]').is_enabled()
 
     # A failed write stays non-green; retry uses the same sheet/range without another search.
     settings['fail_write'] = True
@@ -122,6 +159,13 @@ with sync_playwright() as p:
     page.wait_for_function('() => document.querySelector("#slot-1").classList.contains("saved")')
     assert page.locator('#collection-title').input_value() == 'Climate research collection'
     assert page.locator('#open-sheet').get_attribute('href').endswith('/collection-sheet-1/edit')
+    assert page.locator('#month-0').is_disabled() and page.locator('#month-1').is_disabled()
+    assert page.locator('#month-3').is_enabled()
+    before = len(searches)
+    page.fill('#month-3', '2024-04')
+    page.locator('#month-3').blur()
+    page.wait_for_function('async () => (await CollectionStore.load()).slots[3].month === "2024-04"')
+    assert len(searches) == before and len(creates) == 1
     for i in (2, 3):
         page.click(f'[data-slot="{i}"]')
         page.wait_for_function(f'() => document.querySelector("#slot-{i}").classList.contains("saved")')
@@ -183,4 +227,4 @@ with sync_playwright() as p:
     assert len(searches) == before
     assert not errors, errors
     browser.close()
-    print('Collection browser checks passed: four slots, title separate from query, one shared sheet, green only after save, no X refetch on retry, reload recovery, CSV order, excluded columns/bookmarks, images, batching, mobile.')
+    print('Collection browser checks passed: four editable month slots, saved dates protected, title separate from query, one shared sheet, green only after save, no X refetch on retry, reload recovery, CSV order, excluded columns/bookmarks, images, batching, mobile.')

@@ -5,7 +5,8 @@
 <header><a class="brand" href="/">twitt<span> / archive collector</span></a><span class="badge">X API · Full archive</span></header>
 <div class="layout"><form id="search-form">
 <div class="section-title"><span class="step">01</span><h2>Build your collection</h2></div>
-<label for="collection-title">Collection title</label><input id="collection-title" required maxlength="150" placeholder="e.g. Climate discussion study"><p class="hint">Names your spreadsheet and labels each row. This title is separate from your X search query.</p>
+<label for="collection-title">Collection title</label><input id="collection-title" required maxlength="150" placeholder="e.g. Climate discussion study"><p class="hint">Names your spreadsheet and labels each row. You can edit the form; apply changed settings before searching. Changing an already-searched collection starts a separate spreadsheet. The title is separate from your X search query.</p>
+<p id="settings-status" class="hint" role="status" aria-live="polite"></p>
 <label for="query">Keywords, hashtags, or an X search query</label>
 <textarea id="query" name="query" required maxlength="1024" rows="3" placeholder="#climate OR &quot;clean energy&quot; lang:en -is:retweet"></textarea>
 <p class="hint">Use OR for alternatives, quotes for a phrase, and # for a hashtag. Plain words match together. English only (lang:en is applied automatically). X search operators are supported.</p>
@@ -14,7 +15,7 @@
 <section class="month-slot" id="slot-1"><label for="month-1">Month slot 2</label><input id="month-1" type="month" min="2006-03"><p class="slot-status" id="slot-status-1" role="status">Not started</p><button type="button" class="month-action" data-slot="1" disabled>Search &amp; save</button></section>
 <section class="month-slot" id="slot-2"><label for="month-2">Month slot 3</label><input id="month-2" type="month" min="2006-03"><p class="slot-status" id="slot-status-2" role="status">Not started</p><button type="button" class="month-action" data-slot="2" disabled>Search &amp; save</button></section>
 <section class="month-slot" id="slot-3"><label for="month-3">Month slot 4</label><input id="month-3" type="month" min="2006-03"><p class="slot-status" id="slot-status-3" role="status">Not started</p><button type="button" class="month-action" data-slot="3" disabled>Search &amp; save</button></section>
-</div><p class="hint">Choose up to four distinct months, earliest first. Click Search &amp; save on the first selected month to start. Later months unlock after the preceding month is saved. Green means saved successfully to the shared spreadsheet.</p>
+</div><p class="hint">Choose up to four distinct months, earliest first. Click Search &amp; save on the first selected month to start. Later months unlock after the preceding month is saved. Unsearched months can be changed or filled in later. Months with collected results stay locked. Green means saved successfully to the shared spreadsheet.</p>
 <label for="post-limit">Posts per month</label><select id="post-limit" name="post-limit"><option value="5" selected>5 · quick test</option><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="500">500 · full collection</option></select>
 <p class="hint">Defaults to 5 English-language posts per month. X requires fetching at least 10 per request; only your selected number is shown and exported. Uses your live X API allowance.</p>
 <p class="hint">We keep the first matching posts up to your selected limit per month in the order returned by X’s relevance search. Preview, CSV, and Google Sheets use that same order.</p>

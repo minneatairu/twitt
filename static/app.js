@@ -76,10 +76,38 @@ let initialized = false;
 monthInputs.forEach(input => { input.max = current; });
 monthInputs[0].value = current;
 
+function monthStarted(slot) {
+  return slot.searchComplete || slot.rows.length > 0 || Boolean(slot.cursor) || slot.seenTokens.length > 0 ||
+    slot.sheetStart != null || slot.uploaded > 0 || slot.status === 'saved';
+}
+function canEditMonth(index) {
+  // Do not insert an earlier month ahead of rows already written to the shared sheet.
+  return !collection || !collection.slots.slice(index).some(monthStarted);
+}
+function identityChanged() {
+  return collection && (titleInput.value.trim() !== collection.title || queryInput.value.trim() !== collection.query ||
+    Number(postLimit.value) !== collection.limit);
+}
+function draftRequiresNew() {
+  return Boolean(identityChanged() || (collection && monthInputs.some((input, index) =>
+    input.value !== collection.slots[index].month && !canEditMonth(index))));
+}
 function render() {
   const locked = Boolean(collection);
-  [titleInput, queryInput, postLimit, ...monthInputs].forEach(input => { input.disabled = locked || busy || !initialized; });
-  submit.hidden = locked;
+  const changed = draftRequiresNew();
+  [titleInput, queryInput, postLimit].forEach(input => { input.disabled = busy; });
+  monthInputs.forEach((input, index) => {
+    input.disabled = busy || (!changed && !canEditMonth(index));
+    input.title = !initialized ? 'Loading collection settings…' : busy ? 'Wait until the current action finishes.'
+      : !changed && !canEditMonth(index) ? 'This month or a later month already has collected results. Use an unsearched later slot.'
+      : 'Choose or change this month. No search runs until you click Search & save.';
+  });
+  submit.hidden = locked && !changed;
+  submit.textContent = changed ? collection.slots.some(monthStarted) || collection.sheet.id
+    ? 'Start new collection with these settings' : 'Apply collection settings' : 'Start collection';
+  document.querySelector('#settings-status').textContent = changed
+    ? `Edits are not applied yet. Saved results still belong to “${collection.title}”. Use ${submit.textContent} below.`
+    : collection ? 'Collection title and query can be edited. Unsearched later months can be changed without starting over.' : '';
   submit.disabled = busy || !initialized;
   newButton.hidden = !locked;
   newButton.disabled = busy;
@@ -93,6 +121,7 @@ function render() {
     const month = slot ? slot.month : monthInputs[i].value;
     const reason = !initialized ? 'Loading collection settings…'
       : busy ? 'Another month is searching or saving. Please wait.'
+      : changed ? 'Apply the edited collection settings below before searching.'
       : !month ? 'Choose a month for this slot.'
       : slot?.status === 'saved' ? 'This month is already saved.'
       : next !== i ? `Save month slot ${next + 1} first.` : '';
@@ -145,8 +174,38 @@ async function checkpoint() {
   render();
 }
 form.addEventListener('input', render);
+monthInputs.forEach((input, index) => input.addEventListener('change', async () => {
+  if (!collection || busy || !initialized) return;
+  if (draftRequiresNew()) { render(); return; }
+  const previous = collection.slots[index];
+  if (!canEditMonth(index)) { input.value = previous.month; render(); return; }
+  const month = input.value;
+  if (month === previous.month) return;
+  const proposed = collection.slots.map((slot, i) => i === index ? month : slot.month).filter(Boolean);
+  if (proposed.some((value, i) => value < '2006-03' || value > current || (i > 0 && value <= proposed[i - 1]))) {
+    input.value = previous.month;
+    status.classList.add('error');
+    status.textContent = 'Choose distinct months in chronological order, after any already collected month. Future months are unavailable.';
+    render();
+    return;
+  }
+  busy = true;
+  collection.slots[index] = {...previous, month, status: 'not_started', error: ''};
+  render();
+  try {
+    await checkpoint();
+    status.classList.remove('error');
+    status.textContent = month ? `Month slot ${index + 1} updated to ${month}. Click Search & save when ready; no API requests have been made.`
+      : `Month slot ${index + 1} cleared. You can select it later.`;
+    refreshResults();
+  } catch (error) {
+    collection.slots[index] = previous;
+    input.value = previous.month;
+    status.classList.add('error'); status.textContent = error.message;
+  } finally { busy = false; render(); }
+}));
 function prepareCollection() {
-  if (collection) return true;
+  if (collection && !draftRequiresNew()) return true;
   if (!form.reportValidity()) return false;
   const months = monthInputs.map(input => input.value);
   const selected = months.filter(Boolean);
@@ -155,6 +214,8 @@ function prepareCollection() {
     status.textContent = 'Enter a collection title, search query, and one to four distinct months in chronological order.';
     return false;
   }
+  if (collection && (collection.slots.some(monthStarted) || collection.sheet.id) &&
+      !confirm('Apply these changes as a new collection? The current Google spreadsheet is kept. Local active results will be replaced, so download the CSV first if needed.')) return false;
   collection = {version: 1, title: titleInput.value.trim(), query: queryInput.value.trim(), limit: Number(postLimit.value),
     createdAt: new Date().toISOString(), sheet: {id: null, nextRow: 2, headerWritten: false},
     slots: months.map(month => ({month, rows: [], status: 'not_started', searchComplete: false,
@@ -164,7 +225,7 @@ function prepareCollection() {
 }
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (busy || !initialized || collection || !prepareCollection()) return;
+  if (busy || !initialized || !prepareCollection()) return;
   try {
     await checkpoint();
     refreshResults();
@@ -248,7 +309,7 @@ newButton.addEventListener('click', async () => {
 });
 (async () => {
   try {
-    const [config, saved] = await Promise.all([fetch('/api/index').then(response => {
+    const [config, saved] = await Promise.all([fetch('/api/index', {signal: AbortSignal.timeout(15000)}).then(response => {
       if (!response.ok) throw new Error('Cannot read server configuration. Refresh to retry.');
       return response.json();
     }), CollectionStore.load()]);
