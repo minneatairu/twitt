@@ -30,10 +30,14 @@
     return response.json();
   }
   async function writeMonth(collection, slot, columns, token, checkpoint, progress) {
-    const selected = columns.filter(column => !excluded.has(column));
-    const values = slot.rows.map(row => selected.map(key => String(key === 'collection_title' ? collection.title : row[key] ?? '')));
-    if (values.some(row => row.some(cell => cell.length > 50000))) throw new Error('A cell exceeds Google Sheets’ 50,000-character limit. Your collected posts remain available as CSV.');
     const sheet = collection.sheet;
+    const requested = columns.filter(column => !excluded.has(column));
+    // Keep active spreadsheets on their original schema so later months cannot shift data.
+    const selected = sheet.columns || (sheet.id && sheet.headerWritten
+      ? requested.filter(column => column !== 'engagement') : requested);
+    sheet.columns = selected;
+    const values = slot.rows.map(row => selected.map(key => String(key === 'collection_title' ? collection.title : key === 'engagement' ? '' : row[key] ?? '')));
+    if (values.some(row => row.some(cell => cell.length > 50000))) throw new Error('A cell exceeds Google Sheets’ 50,000-character limit. Your collected posts remain available as CSV.');
     if (!sheet.id) {
       const created = await request('', token, 'POST', {properties: {title: collection.title},
         sheets: [{properties: {sheetId: 0, title: 'Posts', gridProperties: {
