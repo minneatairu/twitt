@@ -16,6 +16,7 @@ with sync_playwright() as p:
    rows.append({'id':data['start']+str(i),'url':'https://x.com/i/web/status/1','username':'tester','created_at':'2024-01-02T00:00:00Z','month':data['start'],'engagement_score':i,'text':'=formula, café\n<script>','media':json.dumps([{'type':'photo','url':'https://pbs.twimg.com/media/test.jpg','alt_text':'Associated image'}])})
   r.fulfill(json={'rows':rows,'next_token':'more-available' if data['candidates'] in (5,10) else None})
  page.route('**/api/index',route)
+ page.route('https://accounts.google.com/gsi/client', lambda r:r.fulfill(content_type='application/javascript',body=''))
  import base64
  page.route('https://pbs.twimg.com/**',lambda r:r.fulfill(content_type='image/png',body=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')))
  page.goto(os.environ.get('APP_BASE_URL', 'http://127.0.0.1:8000'))

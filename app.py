@@ -218,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(content)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' https://pbs.twimg.com; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self' https://accounts.google.com; script-src 'self' https://accounts.google.com; connect-src 'self' https://sheets.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; img-src 'self' https://pbs.twimg.com; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(content)
 
@@ -226,8 +226,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in ('/api/health', '/api/index', '/api/index.py'):
             return self.send(200, {'ok': True,
-                'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN'))})
-        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+                'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')),
+                'google_client_id': os.environ.get('GOOGLE_CLIENT_ID', '')})
+        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/sheets.js': ('sheets.js', 'text/javascript; charset=utf-8')}
         if path in files:
             name, mime = files[path]
             return self.send(200, (ROOT / 'static' / name).read_bytes(), mime)

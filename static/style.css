@@ -3,3 +3,5 @@
 .dates{grid-template-columns:repeat(2,minmax(0,1fr))}.dates>div,input,select,textarea{min-width:0}form,aside{min-width:0}
 
 [hidden]{display:none!important}
+
+.sheet-link{display:block;color:#345c32;font-size:13px;margin-top:10px;overflow-wrap:anywhere}#sheets-status{margin-bottom:8px}

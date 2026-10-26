@@ -126,10 +126,19 @@ class ServerTests(unittest.TestCase):
         cls.server.server_close()
 
     def test_web_assets_and_health(self):
-        for path in ['/', '/app.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
+        for path in ['/', '/app.js', '/sheets.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
             with self.subTest(path=path), urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 20)
+
+    def test_google_configuration_exposes_only_public_client_id(self):
+        with patch.dict(os.environ, {'GOOGLE_CLIENT_ID': 'public-client.apps.googleusercontent.com',
+                                     'X_BEARER_TOKEN': 'private-test-token'}):
+            with urlopen(self.base + '/api/index') as response:
+                data = json.load(response)
+            self.assertEqual(data['google_client_id'], 'public-client.apps.googleusercontent.com')
+            self.assertTrue(data['configured'])
+            self.assertNotIn('private-test-token', json.dumps(data))
 
     def test_stateless_search_returns_preview_and_export_metadata(self):
         payload = {'data': [{'lang': 'en', 'id': '100', 'text': 'Test post', 'attachments': {'media_keys': ['photo']}}],

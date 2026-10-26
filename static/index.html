@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Twitt · Archive collector</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Twitt · Archive collector</title><link rel="stylesheet" href="/style.css"><script src="https://accounts.google.com/gsi/client" async defer></script><script src="/sheets.js" defer></script><script src="/app.js" defer></script></head>
 <body><main>
 <header><a class="brand" href="/">twitt<span> / archive collector</span></a><span class="badge">X API · Full archive</span></header>
 <div class="layout"><form id="search-form">
@@ -14,7 +14,7 @@
 <p class="hint">We keep the first matching posts up to your selected limit per month in the order returned by X’s relevance search. Preview and CSV use that same order.</p>
 <div class="estimate" id="estimate"></div><button id="submit" type="submit">Collect posts <span>↗</span></button>
 <p class="hint">Uses your X API allowance. Up to 24 months per export; months with fewer matches produce fewer exported rows.</p>
-</form><aside><div class="section-title"><span class="step">02</span><h2>Your export</h2></div><div id="connection" class="connection">Checking API configuration…</div><div id="status" role="status" aria-live="polite">Your collection will appear here.</div><div id="summary"></div><a id="download" class="download" hidden>Download CSV ↓</a><div class="metadata"><h3>More than just the text</h3><p>Post text & link · publication time · author & follower count · engagement metrics · hashtags & mentions · conversation references · raw metadata</p><p>UTF-8 CSV, with one row per post. Times use UTC. Metrics reflect the time of collection. Missing fields stay empty.</p></div></aside></div>
+</form><aside><div class="section-title"><span class="step">02</span><h2>Your export</h2></div><div id="connection" class="connection">Checking API configuration…</div><div id="status" role="status" aria-live="polite">Your collection will appear here.</div><div id="summary"></div><a id="download" class="download" hidden>Download CSV ↓</a><button id="send-sheets" type="button" hidden>Send to Google Sheets</button><p id="sheets-status" class="hint" role="status" aria-live="polite"></p><a id="open-sheet" class="sheet-link" target="_blank" rel="noopener noreferrer" hidden>Open Google spreadsheet ↗</a><div class="metadata"><h3>More than just the text</h3><p>Post text & link · publication time · author & follower count · engagement metrics · hashtags & mentions · conversation references · raw metadata</p><p>UTF-8 CSV, with one row per post. Times use UTC. Metrics reflect the time of collection. Missing fields stay empty.</p></div></aside></div>
 <section id="gallery-section" hidden><h2>Collected posts &amp; images</h2><p class="hint">Directly attached photos and video previews. Images load from X when available.</p><div id="gallery"></div><button id="more" type="button" hidden>Show more posts</button></section>
 <footer>Built for focused research. Respect X’s developer terms and the privacy of people in your dataset.</footer>
 </main></body></html>

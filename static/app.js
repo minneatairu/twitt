@@ -63,6 +63,7 @@ function estimate() {
 form.addEventListener('input', estimate);
 estimate();
 fetch('/api/index').then(r => r.json()).then(data => {
+  TwittSheets.setClientId(data.google_client_id);
   document.querySelector('#connection').textContent = data.configured ? '● API token configured' : '○ API token needed';
   if (!data.configured) status.textContent = 'Configure X_BEARER_TOKEN on the server (Vercel environment variables), then redeploy. Your API token stays on the server.';
 }).catch(() => { status.textContent = 'Cannot reach the server. Refresh to retry.'; });
@@ -96,6 +97,7 @@ function renderSummary(summary) {
 }
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  if (submit.disabled) return;
   const first = start.value;
   const last = end.value;
   const monthCount = (Number(last.slice(0,4)) - Number(first.slice(0,4))) * 12 + Number(last.slice(5)) - Number(first.slice(5)) + 1;
@@ -107,6 +109,7 @@ form.addEventListener('submit', async event => {
   const budget = Number(postLimit.value);
   submit.disabled = true;
   download.hidden = true;
+  TwittSheets.reset();
   document.querySelector('#gallery-section').hidden = true;
   gallery.replaceChildren();
   results = []; offset = 0;
@@ -148,9 +151,12 @@ form.addEventListener('submit', async event => {
       if (month <= last) await sleep(1100);
     }
     makeDownload();
-    status.textContent = `Collected ${results.length.toLocaleString()} posts. Preview them below or download the CSV. Results stay in this tab until you refresh or start a new search.`;
+    TwittSheets.setResults(results, columns, `Twitt posts · ${query} · ${first} to ${last}`);
+    status.textContent = `Collected ${results.length.toLocaleString()} posts. Preview them below, send them to Google Sheets, or download the CSV. Results stay in this tab until you refresh or start a new search.`;
   } catch (error) {
     status.classList.add('error');
     status.textContent = (error.message || 'The request failed.') + ' Collection is incomplete; no complete CSV was generated. Completed months remain visible below. Retrying uses additional API allowance.';
   } finally { submit.disabled = false; }
 });
+
+document.addEventListener('twitt:sheets-busy', event => { submit.disabled = event.detail; });
