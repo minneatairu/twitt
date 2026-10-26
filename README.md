@@ -36,9 +36,11 @@ The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can over
 
 ## Search and result order
 
+Use **Posts per month → 10 · quick test** and select a single month to test with up to 10 posts. Options are 10, 50, 100, and 500 (default). These are live searches and still use your X API allowance; selecting several months applies the limit to each month.
+
 Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. X search operators pass through unchanged. Select an inclusive month range of up to 24 months. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
 
-For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it has up to 500 unique posts or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV have the same order, grouped by month from earliest to latest. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
+For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it reaches your selected limit (up to 500 unique posts) or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV have the same order, grouped by month from earliest to latest. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
 
 Failures stop collection without retries to avoid unexpected duplicate charges. Retrying starts a new search and can consume additional allowance. A present token alone does not establish valid permissions or credits.
 

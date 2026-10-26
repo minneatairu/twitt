@@ -10,11 +10,11 @@ with sync_playwright() as p:
   data=r.request.post_data_json;calls.append(data)
   assert r.request.headers['x-app-password']=='test-password'
   # 25 posts in first month exercise Show more; one in second month.
-  count=25 if data['start']=='2024-01' else 1
+  count=10 if data['candidates']==10 else (25 if data['start']=='2024-01' else 1)
   rows=[]
   for i in range(count):
    rows.append({'id':data['start']+str(i),'url':'https://x.com/i/web/status/1','username':'tester','created_at':'2024-01-02T00:00:00Z','month':data['start'],'engagement_score':i,'text':'=formula, café\n<script>','media':json.dumps([{'type':'photo','url':'https://pbs.twimg.com/media/test.jpg','alt_text':'Associated image'}])})
-  r.fulfill(json={'rows':rows,'next_token':None})
+  r.fulfill(json={'rows':rows,'next_token':'more-available' if data['candidates']==10 else None})
  page.route('**/api/index',route)
  import base64
  page.route('https://pbs.twimg.com/**',lambda r:r.fulfill(content_type='image/png',body=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')))
@@ -32,9 +32,22 @@ with sync_playwright() as p:
  assert rows[0]['text']=="'=formula, café\n<script>"
  assert rows[0]['engagement_score']=='0'
  assert len({row['month'] for row in rows})==2
+ page.select_option('#post-limit','10')
+ page.fill('#end','2024-01')
+ assert 'up to 10 exported posts' in page.locator('#estimate').inner_text()
+ before=len(calls)
+ page.click('#submit');page.locator('#download').wait_for(state='visible')
+ assert len(calls)==before+1, 'Test collection must not fetch another page after reaching ten'
+ assert calls[-1]['count']==10
+ assert calls[-1]['candidates']==10
+ assert page.locator('#gallery .post').count()==10
+ with page.expect_download() as d:page.click('#download')
+ small=list(csv.DictReader(io.StringIO(open(d.value.path(),encoding='utf-8-sig').read())))
+ assert len(small)==10
+ assert [row['engagement_score'] for row in small]==[str(i) for i in range(10)]
  page.screenshot(path='/tmp/twitt-vercel-desktop.png',full_page=True)
  page.set_viewport_size({'width':390,'height':844})
  assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
  assert not errors,errors
  browser.close()
- print('Browser checks passed: multi-month search, password, web preview, images, show-more, actual CSV download/content, mobile layout. Simulated X responses.')
+ print('Browser checks passed: multi-month search, password, web preview, images, show-more, actual CSV download/content, 10-post limit without extra pagination, mobile layout. Simulated X responses.')

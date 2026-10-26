@@ -62,6 +62,19 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(rows[0]['id'], '0')
         self.assertEqual(rows[500]['id'], '0')
 
+    def test_small_test_collection_stops_at_ten(self):
+        calls = []
+        def fetch(params):
+            calls.append(params)
+            return {'data': [{'id': str(i)} for i in range(10)],
+                    'meta': {'next_token': 'more-available'}}
+        rows, summary = app.collect('test', app.month_bounds('2024-01', '2024-01'), 10,
+                                    lambda _: None, fetch, lambda _: None)
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['max_results'], 10)
+        self.assertEqual(summary[0]['exported'], 10)
+
     def test_partial_api_errors_are_not_success(self):
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             app.collect('x', app.month_bounds('2024-01', '2024-01'), 500, lambda _: None,
@@ -149,6 +162,12 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(result['end_time'], data['end_time'])
         with self.assertRaises(ValueError):
             app.search_page(dict(data, end_time='2025-01-01T00:00:00Z'))
+
+    def test_test_limit_caps_upstream_request(self):
+        with patch('app.request_page', return_value={'data': []}) as fetch:
+            app.search_page({'query': '#test', 'start': '2024-01', 'end': '2024-01',
+                             'candidates': 10, 'count': 100})
+            self.assertEqual(fetch.call_args.args[0]['max_results'], 10)
 
     def test_cross_origin_cannot_start_paid_search(self):
         request = Request(self.base + '/api/index', data=b'{}', headers={'Content-Type': 'application/json', 'Origin': 'https://example.com'})

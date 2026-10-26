@@ -49,8 +49,8 @@ def validate(data):
     if not isinstance(query, str) or not query.strip() or len(query) > 1024:
         raise ValueError('Enter a search query of 1–1024 characters.')
     budget = data.get('candidates', 500)
-    if type(budget) is not int or budget not in (500, 1000, 2500, 5000):
-        raise ValueError('Choose a supported candidate limit.')
+    if type(budget) is not int or budget not in (10, 50, 100, 500):
+        raise ValueError('Choose 10, 50, 100, or 500 posts per month.')
     return query.strip(), month_bounds(data.get('start'), data.get('end')), budget
 
 
@@ -143,7 +143,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
             seen_tokens.add(next_token)
             if len(posts) < budget:
                 pause(1.1)
-        selected = list(posts.values())[:500]
+        selected = list(posts.values())[:min(500, budget)]
         rows.extend(to_row(post, users, month, media) for post in selected)
         summary.append({'month': month, 'candidates': len(posts), 'exported': len(selected), 'exhausted': exhausted})
         pause(1.1)
@@ -170,6 +170,7 @@ def search_page(data, fetch=None):
     count = data.get('count', 100)
     if type(count) is not int or not 10 <= count <= 500:
         raise ValueError('Page size must be between 10 and 500.')
+    count = min(count, budget)
     token = data.get('next_token')
     if token is not None and (not isinstance(token, str) or len(token) > 4096):
         raise ValueError('Invalid pagination token.')

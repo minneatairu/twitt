@@ -1,6 +1,7 @@
 const form = document.querySelector('form');
 const start = document.querySelector('#start');
 const end = document.querySelector('#end');
+const postLimit = document.querySelector('#post-limit');
 const status = document.querySelector('#status');
 const submit = document.querySelector('#submit');
 const download = document.querySelector('#download');
@@ -56,7 +57,7 @@ function estimate() {
   const [ey, em] = end.value.split('-').map(Number);
   const months = (ey - sy) * 12 + em - sm + 1;
   document.querySelector('#estimate').textContent = months > 0 && months <= 24
-    ? `${months} month${months === 1 ? '' : 's'} · up to ${(months * 500).toLocaleString()} exported posts`
+    ? `${months} month${months === 1 ? '' : 's'} · up to ${(months * Number(postLimit.value)).toLocaleString()} exported posts`
     : 'Choose an ordered range of 1–24 months.';
 }
 form.addEventListener('input', estimate);
@@ -104,7 +105,7 @@ form.addEventListener('submit', async event => {
     return;
   }
   const query = form.query.value;
-  const budget = 500;
+  const budget = Number(postLimit.value);
   const password = document.querySelector('#password').value;
   submit.disabled = true;
   download.hidden = true;
@@ -135,7 +136,7 @@ form.addEventListener('submit', async event => {
         if (nextToken && posts.size < budget) await sleep(1100);
       } while (nextToken && posts.size < budget);
       // Map preserves X's response order across pages; do not rerank by engagement.
-      const selected = [...posts.values()].slice(0, 500);
+      const selected = [...posts.values()].slice(0, budget);
       results.push(...selected);
       summary.push({month, candidates: posts.size, exported: selected.length});
       renderSummary(summary);
