@@ -17,7 +17,7 @@ API = 'https://api.x.com/2/tweets/search/all'
 FIELDS = ['month', 'id', 'url', 'text', 'created_at', 'author_id', 'username',
           'author_name', 'author_verified', 'author_followers', 'language',
           'likes', 'reposts', 'replies', 'quotes', 'bookmarks', 'impressions',
-          'engagement_score', 'hashtags', 'mentions', 'urls', 'conversation_id',
+          'hashtags', 'mentions', 'urls', 'conversation_id',
           'in_reply_to_user_id', 'referenced_posts', 'attachments', 'images', 'media', 'geo', 'raw_json']
 
 
@@ -79,11 +79,6 @@ def request_page(params):
         raise ValueError('Could not reach X. Check network access and retry.') from None
 
 
-def score(post):
-    metrics = post.get('public_metrics', {})
-    return sum(metrics.get(k, 0) for k in ('like_count', 'retweet_count', 'reply_count', 'quote_count'))
-
-
 def to_row(post, users, month, media=None):
     author = users.get(post.get('author_id'), {})
     metrics = post.get('public_metrics', {})
@@ -97,7 +92,7 @@ def to_row(post, users, month, media=None):
                author_id=post.get('author_id', ''), username=author.get('username', ''),
                author_name=author.get('name', ''), author_verified=author.get('verified', ''),
                author_followers=author.get('public_metrics', {}).get('followers_count', ''),
-               language=post.get('lang', ''), engagement_score=score(post),
+               language=post.get('lang', ''),
                conversation_id=post.get('conversation_id', ''),
                in_reply_to_user_id=post.get('in_reply_to_user_id', ''))
     for column, key in [('likes', 'like_count'), ('reposts', 'retweet_count'),
@@ -138,7 +133,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
             for item in payload.get('includes', {}).get('media', []):
                 media[item['media_key']] = item
             for post in payload.get('data', []):
-                if post.get('lang') == 'en' and (len(posts) < budget or post['id'] in posts):
+                if post.get('lang') == 'en' and len(posts) < budget and post['id'] not in posts:
                     posts[post['id']] = post
             progress(f'{month}: searched {len(posts):,} candidates')
             next_token = payload.get('meta', {}).get('next_token')

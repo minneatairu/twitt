@@ -13,7 +13,7 @@ with sync_playwright() as p:
   count=10 if data['candidates'] in (5,10) else (25 if data['start']=='2024-01' else 1)
   rows=[]
   for i in range(count):
-   rows.append({'id':data['start']+str(i),'url':'https://x.com/i/web/status/1','username':'tester','created_at':'2024-01-02T00:00:00Z','month':data['start'],'engagement_score':i,'text':'=formula, café\n<script>','media':json.dumps([{'type':'photo','url':'https://pbs.twimg.com/media/test.jpg','alt_text':'Associated image'}])})
+   rows.append({'id':data['start']+str(i),'url':'https://x.com/i/web/status/1','username':'tester','created_at':'2024-01-02T00:00:00Z','month':data['start'],'likes':i,'text':'=formula, café\n<script>','media':json.dumps([{'type':'photo','url':'https://pbs.twimg.com/media/test.jpg','alt_text':'Associated image'}])})
   r.fulfill(json={'rows':rows,'next_token':'more-available' if data['candidates'] in (5,10) else None})
  page.route('**/api/index',route)
  page.route('https://accounts.google.com/gsi/client', lambda r:r.fulfill(content_type='application/javascript',body=''))
@@ -34,7 +34,8 @@ with sync_playwright() as p:
  rows=list(csv.DictReader(io.StringIO(open(d.value.path(),encoding='utf-8-sig').read())))
  assert len(rows)==26
  assert rows[0]['text']=="'=formula, café\n<script>"
- assert rows[0]['engagement_score']=='0'
+ assert 'engagement_score' not in rows[0]
+ assert rows[0]['id']=='2024-010'
  assert len({row['month'] for row in rows})==2
  page.select_option('#post-limit','10')
  page.fill('#end','2024-01')
@@ -48,7 +49,7 @@ with sync_playwright() as p:
  with page.expect_download() as d:page.click('#download')
  small=list(csv.DictReader(io.StringIO(open(d.value.path(),encoding='utf-8-sig').read())))
  assert len(small)==10
- assert [row['engagement_score'] for row in small]==[str(i) for i in range(10)]
+ assert [row['id'] for row in small]==['2024-01'+str(i) for i in range(10)]
  page.select_option('#post-limit','5')
  assert 'up to 5 exported posts' in page.locator('#estimate').inner_text()
  before=len(calls)
@@ -59,7 +60,7 @@ with sync_playwright() as p:
  with page.expect_download() as d:page.click('#download')
  five=list(csv.DictReader(io.StringIO(open(d.value.path(),encoding='utf-8-sig').read())))
  assert len(five)==5
- assert [row['engagement_score'] for row in five]==[str(i) for i in range(5)]
+ assert [row['id'] for row in five]==['2024-01'+str(i) for i in range(5)]
  page.screenshot(path='/tmp/twitt-vercel-desktop.png',full_page=True)
  page.set_viewport_size({'width':390,'height':844})
  assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

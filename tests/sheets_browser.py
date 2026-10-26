@@ -21,7 +21,7 @@ with sync_playwright() as p:
         rows = [{'id': str(1234567890123456789 + i), 'month': data['start'], 'language': 'en',
                  'text': '=SUM(1,2)\nEnglish post', 'url': 'https://x.com/i/web/status/1',
                  'username': 'tester', 'created_at': '2024-01-01T00:00:00Z',
-                 'engagement_score': i, 'media': '[]', 'images': '["https://pbs.twimg.com/media/test.jpg"]'}
+                 'likes': i, 'media': '[]', 'images': '["https://pbs.twimg.com/media/test.jpg"]'}
                 for i in range(start, start + count)]
         return route.fulfill(json={'rows': rows, 'next_token': 'second' if data['candidates'] == 500 and not start else None})
 
@@ -69,6 +69,8 @@ with sync_playwright() as p:
     assert 'valueInputOption=RAW' in writes[0]['url']
     values = writes[0]['body']['values']
     assert len(values) == 6
+    assert 'engagement_score' not in values[0]
+    assert [row[values[0].index('id')] for row in values[1:]] == [str(1234567890123456789 + i) for i in range(5)]
     assert values[1][values[0].index('id')] == '1234567890123456789'
     assert values[1][values[0].index('text')] == '=SUM(1,2)\nEnglish post'
     assert values[1][values[0].index('images')] == '["https://pbs.twimg.com/media/test.jpg"]'

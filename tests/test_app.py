@@ -33,14 +33,18 @@ class CollectionTests(unittest.TestCase):
             if len(calls) == 1:
                 return {'data': [{'lang': 'en', 'id': '1', 'text': 'low', 'author_id': 'a', 'public_metrics': {'like_count': 2}}],
                         'meta': {'next_token': 'page2'}}
-            return {'data': [{'lang': 'en', 'id': '1', 'text': 'low', 'public_metrics': {'like_count': 2}},
+            return {'data': [{'lang': 'en', 'id': '1', 'text': 'duplicate replacement', 'public_metrics': {'like_count': 999}},
                              {'lang': 'en', 'id': '2', 'text': 'high', 'author_id': 'a', 'attachments': {'media_keys': ['photo', 'video']}, 'public_metrics': {'like_count': 8, 'retweet_count': 3}}],
                     'includes': {'users': [{'id': 'a', 'username': 'researcher'}],
                                  'media': [{'media_key': 'photo', 'type': 'photo', 'url': 'https://pbs.twimg.com/media/example.jpg', 'alt_text': 'A test image'},
                                            {'media_key': 'video', 'type': 'video', 'preview_image_url': 'https://pbs.twimg.com/media/preview.jpg'}]}}
         rows, summary = app.collect('#test', app.month_bounds('2024-01', '2024-01'), 500, lambda _: None, fetch, lambda _: None)
         self.assertEqual([r['id'] for r in rows], ['1', '2'])
-        self.assertEqual(rows[1]['engagement_score'], 11)
+        self.assertEqual(rows[0]['text'], 'low')
+        self.assertEqual(rows[0]['likes'], 2)
+        self.assertEqual(rows[1]['likes'], 8)
+        self.assertEqual(rows[1]['reposts'], 3)
+        self.assertNotIn('engagement_score', rows[1])
         self.assertEqual(rows[1]['username'], 'researcher')
         self.assertEqual(len(json.loads(rows[1]['images'])), 2)
         self.assertEqual(json.loads(rows[1]['media'])[0]['alt_text'], 'A test image')

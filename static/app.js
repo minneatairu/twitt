@@ -22,7 +22,7 @@ async function showPosts() {
       author.textContent = `${post.username ? '@' + post.username : 'Post'} ↗`;
       card.append(author);
       const meta = document.createElement('p'); meta.className = 'hint';
-      meta.textContent = `${post.created_at} · ${post.engagement_score} engagements`;
+      meta.textContent = `${post.created_at} · Likes: ${post.likes ?? 'unavailable'} · Reposts: ${post.reposts ?? 'unavailable'} · Replies: ${post.replies ?? 'unavailable'} · Quotes: ${post.quotes ?? 'unavailable'}`;
       const text = document.createElement('p'); text.className = 'post-text'; text.textContent = post.text;
       card.append(meta, text);
       const media = JSON.parse(post.media);
@@ -68,7 +68,7 @@ fetch('/api/index').then(r => r.json()).then(data => {
   if (!data.configured) status.textContent = 'Configure X_BEARER_TOKEN on the server (Vercel environment variables), then redeploy. Your API token stays on the server.';
 }).catch(() => { status.textContent = 'Cannot reach the server. Refresh to retry.'; });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const columns = ['month','id','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','bookmarks','impressions','engagement_score','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
+const columns = ['month','id','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','bookmarks','impressions','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
 function csvCell(value) {
   let text = String(value ?? '');
   if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
@@ -128,7 +128,7 @@ form.addEventListener('submit', async event => {
         let page;
         try { page = await response.json(); } catch { throw new Error('The server did not return search results. It may have timed out; please try again.'); }
         if (!response.ok) throw new Error(page.error || 'Search request failed.');
-        for (const row of page.rows) if (posts.size < budget || posts.has(row.id)) posts.set(row.id, row);
+        for (const row of page.rows) if (posts.size < budget && !posts.has(row.id)) posts.set(row.id, row);
         status.textContent = `${month}: searched ${posts.size.toLocaleString()} candidates`;
         nextToken = page.next_token;
         endTime = page.end_time || endTime;
