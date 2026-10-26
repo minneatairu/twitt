@@ -1,6 +1,6 @@
 # Twitt
 
-Search English-language X posts by keyword or hashtag across a selectable month range, preview up to **500 posts per month** with attached images, and export the same results to Google Sheets or CSV.
+Search English-language X posts by keyword or hashtag in a named collection with up to four month slots, preview up to **500 posts per month** with attached images, and export the same results to Google Sheets or CSV.
 
 ## Deploy on Vercel
 
@@ -14,15 +14,21 @@ Do not prefix the token variable with `NEXT_PUBLIC_` or expose it in frontend co
 
 ### How the hosted app works
 
-Each browser request fetches one X page (up to 100 candidates), with the search cursor passed explicitly to the next request. There are no background threads, database, shared process state, or durable jobs. This works across Vercel function instances and keeps each request bounded. A slow X request can still time out; failures stop collection without automatic retries.
+Each browser request fetches one X page (up to 100 candidates), with the search cursor passed explicitly to the next request. There are no background threads, server database, shared server process state, or server-side jobs. Collection state is stored in IndexedDB in the browser. This works across Vercel function instances and keeps each request bounded. A slow X request can still time out; failures stop collection without automatic retries.
 
-The browser collects results per month in X’s response order, renders a paginated preview of text, author, date, engagement, images, and video previews, then generates the CSV locally. Completed months become visible while later months are still collecting. A failed collection does not generate a complete CSV. Earlier completed months remain visible. Keep the tab open during collection. Results disappear on refresh, closing the tab, or starting another search; download the CSV to keep them. There is no saved-results history or shareable dataset URL.
+Enter a **Collection title**, a separate X search query, a post limit (5 by default), and up to four distinct months in chronological order. The months need not be consecutive. Click **Start collection**, then **Search & save** for each selected month in order. Starting a collection itself does not search X. Google authorization happens before searching so declined authorization does not spend X allowance.
+
+The title names the spreadsheet and appears in each exported row as `collection_title`; it never changes the X query. Settings lock after starting. The first month creates a Google spreadsheet with one **Posts** tab; later months write the next rows in that same tab, without repeating the header or creating another file. At 500 posts per month, four months produce up to 2,000 rows. Each row includes its month. X's relevance order is retained within each month; no custom score or sorting is applied.
+
+A month turns **green only after its search and all Google writes have succeeded and local progress is saved**. A failed month remains incomplete and blocks the next month. Retry resumes from the last saved X search page or Google batch. If the search finished but the upload failed, retrying does not search X again. Completed searches remain available in the web preview and a combined CSV, even when a Sheets upload fails. The CSV covers completed searches only; the summary separately identifies which months have been saved to Sheets.
+
+The active collection's settings, results, pagination cursors, spreadsheet ID, upload offsets, and month statuses persist in this browser's IndexedDB. Refreshing or reopening in the same browser/profile and origin restores them. Google access tokens are never saved. Other browsers/devices or a different Vercel preview origin do not share this state; clearing site data removes it. Only one active collection is retained locally. **New collection** asks before clearing the local active collection and starts a separate spreadsheet; it does not delete existing Google files. Avoid opening the same active collection in multiple tabs while saving.
 
 The app has no password or application login. Anyone able to access the deployment can run searches using the configured X API allowance.
 
 ## Send initial search results to Google Sheets
 
-After a complete initial search, click **Send to Google Sheets**, choose your Google account, and allow the app to create a spreadsheet. It creates a new file with a **Posts** tab containing the same post rows, image URLs, and X result order as the preview/CSV. Google Sheets exports omit `geo`, `impressions`, `raw_json`, `engagement_score`, `language`, `author_verified`, `author_name`, and `author_followers` (follower count). Likes, reposts, replies, quotes, username, and the remaining fields are retained. CSV keeps its existing columns (the calculated engagement score has already been removed from all outputs). It does not fetch replies or make any more X requests. Existing spreadsheets are not edited by this change.
+Each month's **Search & save** button connects to Google and writes to the collection's shared **Posts** tab. **Open Google spreadsheet** always points to this file. Exports retain the same post rows, image URLs, and X result order as the preview/CSV. Sheets omits `geo`, `impressions`, `raw_json`, `engagement_score`, `language`, `author_verified`, `author_name`, `author_followers` (follower count), and `bookmarks`. Likes, reposts, replies, quotes, username, and the remaining fields are retained. CSV keeps its existing columns, plus `collection_title` (the calculated engagement score is absent from all outputs). This workflow does not fetch replies. Older spreadsheets remain unchanged.
 
 One-time Google setup for the deployment owner:
 
@@ -34,7 +40,7 @@ One-time Google setup for the deployment owner:
 
 Authorization requests only `https://www.googleapis.com/auth/drive.file`, so it can create and edit files you use with this app rather than access every spreadsheet. The Google access token stays in browser memory for that export; it is not stored in localStorage, cookies, the repository, or sent to the Python/X server. The public client ID is intentionally returned to the browser; it is not a secret. The X bearer token remains server-side.
 
-Exports use Google Sheets' `RAW` input mode with string values to preserve long IDs and prevent post text from becoming formulas. Images are URL fields, not embedded pictures. Uploads are batched, and **Open Google spreadsheet** links to the created file. On a write failure, **Resume Google Sheets export** retries fixed ranges in the same file without duplicating rows. Keep the tab open to resume; refreshing loses the local export state. A lost response while creating a file can leave an empty file in Drive. Cells longer than Sheets' 50,000-character limit stop export with an explanation; CSV remains available.
+Exports use Google Sheets' `RAW` input mode with string values to preserve long IDs and literal post text. Images are URL fields, not embedded pictures. Writes are batched to fixed ranges: retrying a lost or failed write reuses the same file and range rather than duplicating appended rows. The first spreadsheet has capacity for four 500-post months plus its header. A lost response while creating a file can leave an empty file in Drive. Cells longer than Sheets' 50,000-character limit stop the upload with an explanation; the collected rows remain available as CSV. Keep using the same Google account when resuming a collection.
 
 Live Google authorization and writing require a configured OAuth client and account approval. Automated browser tests use simulated Google/X responses and do not establish live access.
 
@@ -53,9 +59,9 @@ The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can over
 
 ## Search and result order
 
-Use **Posts per month → 10** and select a single month to test with up to 10 posts. Options are 5 (default), 10, 50, 100, and 500. For the smallest test, leave the default at 5. X archive search requires at least 10 results per request, so a five-post collection may fetch 10 from X while displaying/exporting only the first 5. These are live searches and still use your X API allowance; selecting several months applies the limit to each month.
+Use **Posts per month → 10** and fill just one month slot to test with up to 10 posts. Options are 5 (default), 10, 50, 100, and 500. For the smallest test, leave the default at 5. X archive search requires at least 10 results per request, so a five-post collection may fetch 10 from X while displaying/exporting only the first 5. These are live searches and still use your X API allowance; selecting several months applies the limit to each month.
 
-Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. The server groups your query and appends `lang:en` to require English posts, including every OR branch. Only posts X identifies with `lang=en` are returned; language detection is supplied by X. Other search operators are preserved. Select an inclusive month range of up to 24 months. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
+Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. The server groups your query and appends `lang:en` to require English posts, including every OR branch. Only posts X identifies with `lang=en` are returned; language detection is supplied by X. Other search operators are preserved. Select one to four distinct months in chronological order, leaving unused slots empty. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
 
 For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it reaches your selected limit (up to 500 unique posts) or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV have the same order, grouped by month from earliest to latest. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
 
@@ -66,7 +72,7 @@ For each month, the app requests full-archive results with `sort_order=relevancy
 - Responses are paginated in the order X provides. Posts not labeled `lang=en` by X are excluded. Duplicate post IDs retain their first occurrence and its metadata. Collection stops at your chosen number of unique English posts per month or when X supplies no next page.
 - Months are combined from earliest to latest. Within each month, X's response order is preserved in the preview, CSV, and Google Sheets. No engagement thresholds, custom scoring formulas, calculated engagement-score columns, or engagement-based sorting are applied.
 - Likes, reposts, replies, quotes, and other available public metrics are copied individually from X. Their values reflect collection time, not the historical month selected. Unavailable metrics stay empty. `raw_json` preserves the returned post, author, and directly attached media objects for comparison with the flattened columns.
-- Column names and nested JSON formatting are normalized for tabular export; `month` and a post URL are added. CSV quotes/escapes cells and prefixes formula-like text with an apostrophe for spreadsheet safety. Its unprefixed original remains in `raw_json`. Google Sheets uses RAW string writes to preserve IDs and literal text. These export formats do not reorder rows or calculate metrics.
+- Column names and nested JSON formatting are normalized for tabular export; `collection_title`, `month`, and a post URL are added. CSV quotes/escapes cells and prefixes formula-like text with an apostrophe for spreadsheet safety. Its unprefixed original remains in `raw_json`. Google Sheets uses RAW string writes to preserve IDs and literal text. These export formats do not reorder rows or calculate metrics.
 - English filtering, incomplete API coverage, deleted/inaccessible posts, the per-month limit, and X's relevance algorithm define the collected sample. A collection is not an exhaustive archive of matching posts. Repeating the same query can produce different results as X data, metrics, and relevance results change.
 
 Failures stop collection without retries to avoid unexpected duplicate charges. Retrying starts a new search and can consume additional allowance. A present token alone does not establish valid permissions or credits.
@@ -85,8 +91,9 @@ Respect X developer terms, retention/deletion obligations, and applicable privac
 python3 -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/sheets.js
+node --check static/collection-store.js
 ```
 
-With Playwright/Chromium available and the local app running, run `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/browser_smoke.py` and `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/sheets_browser.py` for simulated end-to-end checks.
+With Playwright/Chromium available and the local app running, run `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/collection_browser.py` for simulated end-to-end checks.
 
-Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, same-origin request checks, and stateless search. Browser checks additionally exercise multi-month previews, images, show-more pagination, and the actual generated CSV download. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.
+Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, same-origin request checks, and stateless search. Browser checks additionally exercise four month slots sharing one spreadsheet, titles separate from X queries, green-only-on-save statuses, upload retry without X refetch, browser reload recovery, excluded Sheets columns, previews, image display, and combined CSV row order. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.

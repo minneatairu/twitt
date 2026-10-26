@@ -223,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {'ok': True,
                 'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')),
                 'google_client_id': os.environ.get('GOOGLE_CLIENT_ID', '')})
-        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/sheets.js': ('sheets.js', 'text/javascript; charset=utf-8')}
+        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/sheets.js': ('sheets.js', 'text/javascript; charset=utf-8'), '/collection-store.js': ('collection-store.js', 'text/javascript; charset=utf-8')}
         if path in files:
             name, mime = files[path]
             return self.send(200, (ROOT / 'static' / name).read_bytes(), mime)

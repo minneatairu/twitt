@@ -36,7 +36,7 @@
       "dest": "/static/index.html"
     },
     {
-      "src": "/(app.js|sheets.js|style.css)",
+      "src": "/(app.js|sheets.js|collection-store.js|style.css)",
       "dest": "/static/$1"
     }
   ]

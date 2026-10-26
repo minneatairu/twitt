@@ -130,7 +130,7 @@ class ServerTests(unittest.TestCase):
         cls.server.server_close()
 
     def test_web_assets_and_health(self):
-        for path in ['/', '/app.js', '/sheets.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
+        for path in ['/', '/app.js', '/sheets.js', '/collection-store.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
             with self.subTest(path=path), urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 20)
