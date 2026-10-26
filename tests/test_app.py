@@ -134,10 +134,23 @@ class ServerTests(unittest.TestCase):
         cls.server.server_close()
 
     def test_web_assets_and_health(self):
-        for path in ['/', '/app.js', '/sheets.js', '/collection-store.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
+        for path in ['/', '/app.js', '/sheets.js', '/collection-store.js', '/replies.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
             with self.subTest(path=path), urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 20)
+
+    def test_reply_endpoint_preserves_limit_error_status_and_cursor(self):
+        data = {'action': 'replies', 'conversation_id': '100', 'start_time': '2024-01-01T00:00:00Z',
+                'end_time': '2024-05-01T00:00:00Z', 'count': 100, 'next_token': 'saved-cursor'}
+        with patch('app.request_page', side_effect=app.XAPIError('Rate limit reached', 429, 'rate_limited', 2000000000)) as fetch:
+            request = Request(self.base + '/api/index', data=json.dumps(data).encode(), headers={'Content-Type': 'application/json'})
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request)
+            self.assertEqual(caught.exception.code, 429)
+            response = json.load(caught.exception)
+            self.assertEqual(response['code'], 'rate_limited')
+            self.assertEqual(response['retry_at'], 2000000000)
+            self.assertEqual(fetch.call_args.args[0]['next_token'], 'saved-cursor')
 
     def test_google_configuration_exposes_only_public_client_id(self):
         with patch.dict(os.environ, {'GOOGLE_CLIENT_ID': 'public-client.apps.googleusercontent.com',

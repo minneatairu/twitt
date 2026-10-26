@@ -61,6 +61,12 @@ def validate(data):
     return query.strip(), month_bounds(data.get('start'), data.get('end')), budget
 
 
+class XAPIError(ValueError):
+    def __init__(self, message, status, code, retry_at=None):
+        super().__init__(message)
+        self.status, self.code, self.retry_at = status, code, retry_at
+
+
 def request_page(params):
     token = os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')
     if not token:
@@ -74,7 +80,40 @@ def request_page(params):
                     403: 'X denied access. Check full-archive search permissions and network access.',
                     429: 'X rate or usage limit reached. Wait or check your API usage allowance.',
                     402: 'X requires additional credits or an eligible API plan.'}
-        raise ValueError(messages.get(exc.code, f'X returned HTTP {exc.code}. Check the query and API availability.')) from None
+        retry_at = None
+        code = 'api_error'
+        if exc.code == 429:
+            # Inspect only known error fields; never forward X response bodies or credentials.
+            try:
+                detail = json.loads(exc.read(8192))
+                reason = ' '.join(str(detail.get(key, '')) for key in ('title', 'type', 'detail')).lower()
+            except (ValueError, OSError):
+                reason = ''
+            capped = any(word in reason for word in ('usagecap', 'usage cap', 'credits', 'monthly', 'usage limit'))
+            if not capped:
+                try:
+                    reset = exc.headers.get('x-rate-limit-reset')
+                    delay = exc.headers.get('Retry-After')
+                    if reset:
+                        retry_at = max(time.time() + 1, float(reset))
+                    elif delay:
+                        try:
+                            retry_at = time.time() + max(1, float(delay))
+                        except ValueError:
+                            from email.utils import parsedate_to_datetime
+                            retry_at = max(time.time() + 1, parsedate_to_datetime(delay).timestamp())
+                    if retry_at is not None and not 0 < retry_at - time.time() <= 7 * 86400:
+                        retry_at = None
+                except (ValueError, TypeError, AttributeError, OverflowError):
+                    retry_at = None
+            code = 'rate_limited' if retry_at else 'usage_limit'
+        elif exc.code == 402:
+            code = 'usage_limit'
+        elif exc.code == 400 and params.get('next_token'):
+            code = 'cursor_invalid'
+            messages[400] = 'X rejected the saved pagination cursor or its search parameters. Collection paused; it was not restarted.'
+        raise XAPIError(messages.get(exc.code, f'X returned HTTP {exc.code}. Check the query and API availability.'),
+                        exc.code, code, retry_at) from None
     except (URLError, TimeoutError):
         raise ValueError('Could not reach X. Check network access and retry.') from None
 
@@ -205,6 +244,49 @@ def search_page(data, fetch=None):
             'next_token': payload.get('meta', {}).get('next_token'), 'end_time': end}
 
 
+def replies_page(data, fetch=None):
+    conversation = data.get('conversation_id')
+    if not isinstance(conversation, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', conversation):
+        raise ValueError('A conversation ID must contain digits only and be stored as text.')
+    count = data.get('count', 100)
+    if type(count) is not int or count not in (10, 100, 500):
+        raise ValueError('Choose a reply page size of 10, 100, or 500.')
+    token = data.get('next_token')
+    if token is not None and (not isinstance(token, str) or not token or len(token) > 4096):
+        raise ValueError('Invalid reply pagination cursor.')
+    try:
+        start = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
+        end = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+        if start.tzinfo is None or end.tzinfo is None or not datetime(2006, 3, 21, tzinfo=timezone.utc) <= start < end <= datetime.now(timezone.utc):
+            raise ValueError()
+    except (KeyError, ValueError, TypeError, AttributeError):
+        raise ValueError('Choose a fixed UTC reply date range from 2006 through the present.') from None
+    params = {'query': f'conversation_id:{conversation} is:reply lang:en',
+              'start_time': data['start_time'], 'end_time': data['end_time'], 'max_results': count,
+              'sort_order': 'recency', 'expansions': 'author_id,attachments.media_keys',
+              'tweet.fields': 'created_at,author_id,lang,public_metrics,entities,conversation_id,in_reply_to_user_id,referenced_tweets,attachments',
+              'user.fields': 'username,name', 'media.fields': 'media_key,type,url,preview_image_url,alt_text'}
+    if token:
+        params['next_token'] = token
+    payload = (fetch or request_page)(params)
+    if not isinstance(payload, dict) or payload.get('errors') or not isinstance(payload.get('meta'), dict):
+        raise ValueError('X returned an incomplete reply page. The saved cursor was not advanced.')
+    users = {user['id']: user for user in payload.get('includes', {}).get('users', [])}
+    media = {item['media_key']: item for item in payload.get('includes', {}).get('media', [])}
+    rows = []
+    for post in payload.get('data', []):
+        if post.get('lang') != 'en' or post.get('conversation_id') != conversation:
+            continue
+        parent = next((ref.get('id') for ref in post.get('referenced_tweets', []) if ref.get('type') == 'replied_to'), None)
+        if not isinstance(parent, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', parent):
+            continue
+        row = to_row(post, users, '', media)
+        row['parent_post_id'] = parent
+        rows.append(row)
+    return {'rows': rows, 'next_token': payload.get('meta', {}).get('next_token'),
+            'scanned_count': len(payload.get('data', []))}
+
+
 class Handler(BaseHTTPRequestHandler):
     def send(self, code, content, content_type='application/json; charset=utf-8'):
         if isinstance(content, dict):
@@ -224,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {'ok': True,
                 'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')),
                 'google_client_id': os.environ.get('GOOGLE_CLIENT_ID', '')})
-        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/sheets.js': ('sheets.js', 'text/javascript; charset=utf-8'), '/collection-store.js': ('collection-store.js', 'text/javascript; charset=utf-8')}
+        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8'), '/sheets.js': ('sheets.js', 'text/javascript; charset=utf-8'), '/collection-store.js': ('collection-store.js', 'text/javascript; charset=utf-8'), '/replies.js': ('replies.js', 'text/javascript; charset=utf-8')}
         if path in files:
             name, mime = files[path]
             return self.send(200, (ROOT / 'static' / name).read_bytes(), mime)
@@ -245,8 +327,10 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('Expected an object.')
-            result = search_page(data)
+            result = replies_page(data) if data.get('action') == 'replies' else search_page(data)
             return self.send(200, result)
+        except XAPIError as exc:
+            return self.send(exc.status, {'error': str(exc), 'code': exc.code, 'retry_at': exc.retry_at})
         except (ValueError, TypeError) as exc:
             return self.send(400, {'error': str(exc) if isinstance(exc, ValueError) else 'Invalid request.'})
         except Exception:

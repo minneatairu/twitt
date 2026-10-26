@@ -44,6 +44,36 @@ Exports use Google Sheets' `RAW` input mode with string values to preserve long 
 
 Live Google authorization and writing require a configured OAuth client and account approval. Automated browser tests use simulated Google/X responses and do not establish live access.
 
+## Resumable replies for the final selected posts
+
+After calculating engagement outside the app and selecting your final posts, export those selected rows as a **UTF-8 comma-separated CSV**. In **Replies for your selected posts**:
+
+1. Upload the CSV (1–500 unique selected posts; at most 32 MiB). Keep `id` (or `post_id`) and `conversation_id`. Import post IDs as **text** in Excel; scientific notation/decimals are rejected, and IDs already rounded by Excel cannot be recovered. All original columns and values, including your own engagement calculation, are retained.
+2. Choose the reply start/end dates in UTC and page size (10, 100, or 500 posts requested per X call). The end date is inclusive, capped at 30 seconds before import time if it is today. Click **Import selected posts**. Importing makes no API calls and does not change the uploaded file. Dates/page size are fixed in the job; changing the inputs affects only your next CSV import.
+3. Set the request budget: 1, 5 (default), 20 calls, or **Continue until complete or blocked**. Failed calls count toward this local run budget because they may consume allowance. Click **Start / resume replies**. This uses the existing server-side X bearer token, not Google authorization.
+4. **Pause after current request** saves the in-flight page and stops before another request. Progress saves after every successful page in browser IndexedDB, independently from the original monthly collection. Initial-search controls and replies controls do not run paid requests simultaneously in the same tab. Web Locks prevent reply jobs from running simultaneously in multiple tabs on the same browser origin.
+5. Download **combined CSV** whenever needed, and **checkpoint** before moving devices or clearing site data. A checkpoint is JSON containing selected posts, collected replies, fixed query window/page size, per-conversation cursors, completion flags, and request counts. It contains no API or OAuth credentials, but it does contain your research data. Store it securely. Checkpoint import supports files up to 64 MiB. Restore it in the app to continue; importing/restoring/reloading never starts paid requests automatically.
+
+The app searches `conversation_id:<ID> is:reply lang:en`, with a fixed start/end time and X's `sort_order=recency`. It groups selected posts sharing the same conversation so the thread is fetched once, then retains only replies whose `referenced_tweets` entry of type `replied_to` points **directly to one of your selected post IDs**. This distinguishes replies to the original selected post from replies elsewhere in its thread. Selected posts that are themselves replies are handled by their exact parent relationship. Nonselected replies in those conversations may consume X allowance even though they are not exported. Replies remain English-only, and no engagement formula, custom ranking, or 500-reply total cap is applied.
+
+Each successful page atomically saves its matching replies and the next cursor before another request. Repeated reply IDs retain their first occurrence. A failed response does not advance the cursor. A conversation is complete only after a successful, valid response with no next token; reaching 500 replies or the local request budget is not completion.
+
+### Limits and recovery
+
+- For HTTP 429 with a trustworthy reset/Retry-After time, automatic resumption can wait until that time while the tab remains open. The checkbox can disable automatic resumption. A pause, a closed tab, a suspended browser, or a local request budget can stop the run. Browser timers are not an unattended server worker.
+- Credits/usage caps (including HTTP 402 or a 429 without a usable reset) pause for user action. The app does not repeatedly probe them or assume buying credits is authorized.
+- Network failures and incomplete pages pause with the last cursor intact. Retrying a request whose response was lost can consume extra allowance, but reply-ID deduplication prevents duplicate output rows.
+- A rejected/expired cursor pauses explicitly. **Restart rejected conversation cursor** requires confirmation, keeps the same date window and already-collected replies, and prepares a fresh scan. It does not make requests until Start / resume is clicked. This rescan uses extra allowance and skips duplicate IDs; it is never silent.
+- If browser storage fills, collection stops before another request and offers the in-memory checkpoint download. Do not close the tab until you have saved it. Cursor validity, deleted/protected posts, historical coverage, and language detection are controlled by X; a completed search is not a guarantee that every reply ever published is accessible.
+
+### Combined CSV and reply preview
+
+The new CSV contains each original selected-post column followed by prefixed reply fields (`reply_id`, `reply_parent_post_id`, text, author, date, individual metrics, and image URLs) plus collection status, retrieved count, and fixed window. If an original column already uses one of those names, the reply prefix is extended to prevent a collision. Your uploaded file is unchanged, and your own engagement values are copied, not recalculated. Spreadsheet formula-like cells are escaped as literal text, as in the original CSV export.
+
+Each retrieved reply produces one row containing its selected post's original values. A selected post with no retrieved replies still produces one row with empty reply fields. Status distinguishes `not_searched`, `partial`/paused, `failed`/`failed_partial`, `complete`, and `complete_no_replies`. The last means no accessible English direct replies were returned **within the fixed date window**, not that the post has never had replies. The selected-post order is retained; replies retain X's page order. No manual merge is needed. Replies are not automatically written into the original Google spreadsheet.
+
+Use **View** beside a selected post to preview collected replies and images without another X request. Both partial exports and checkpoints are available while paused. A checkpoint restored on another device uses that deployment's configured X token; credentials are never copied into the file.
+
 ## Local development
 
 Requires Python 3.12+; no third-party runtime packages or build step.
@@ -92,8 +122,9 @@ python3 -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/sheets.js
 node --check static/collection-store.js
+node --check static/replies.js
 ```
 
-With Playwright/Chromium available and the local app running, run `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/collection_browser.py` for simulated end-to-end checks.
+With Playwright/Chromium available and the local app running, run `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/collection_browser.py` for simulated collection checks. Run `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/replies_browser.py` for reply checks, including more than 500 replies, request budgets, rate reset waiting, usage caps, checkpoint transfer, invalid cursors, manual pause, and combined CSV output.
 
 Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, same-origin request checks, and stateless search. Browser checks additionally exercise four month slots sharing one spreadsheet, titles separate from X queries, green-only-on-save statuses, upload retry without X refetch, browser reload recovery, excluded Sheets columns, previews, image display, and combined CSV row order. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.

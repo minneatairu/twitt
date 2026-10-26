@@ -73,6 +73,7 @@ const current = new Date().toISOString().slice(0, 7);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let collection = null;
 let busy = false;
+let replyRunning = false;
 let initialized = false;
 monthInputs.forEach(input => { input.max = current; });
 monthInputs[0].value = current;
@@ -96,10 +97,10 @@ function draftRequiresNew() {
 function render() {
   const locked = Boolean(collection);
   const changed = draftRequiresNew();
-  [titleInput, queryInput, postLimit].forEach(input => { input.disabled = busy; });
+  [titleInput, queryInput, postLimit].forEach(input => { input.disabled = busy || replyRunning; });
   monthInputs.forEach((input, index) => {
-    input.disabled = busy || (!changed && !canEditMonth(index));
-    input.title = !initialized ? 'Loading collection settings…' : busy ? 'Wait until the current action finishes.'
+    input.disabled = (busy || replyRunning) || (!changed && !canEditMonth(index));
+    input.title = !initialized ? 'Loading collection settings…' : (busy || replyRunning) ? 'Wait until the current action finishes.'
       : !changed && !canEditMonth(index) ? 'This month or a later month already has collected results. Use an unsearched later slot.'
       : 'Choose or change this month. No search runs until you click Search & save.';
   });
@@ -109,9 +110,9 @@ function render() {
   document.querySelector('#settings-status').textContent = changed
     ? `Edits are not applied yet. Saved results still belong to “${collection.title}”. Use ${submit.textContent} below.`
     : collection ? 'Collection title and query can be edited. Unsearched later months can be changed without starting over.' : '';
-  submit.disabled = busy || !initialized;
+  submit.disabled = (busy || replyRunning) || !initialized;
   newButton.hidden = !locked;
-  newButton.disabled = busy;
+  newButton.disabled = busy || replyRunning;
   const next = collection ? collection.slots.findIndex(slot => slot.month && slot.status !== 'saved')
     : monthInputs.findIndex(input => input.value);
   monthButtons.forEach((button, i) => {
@@ -121,7 +122,7 @@ function render() {
     card.classList.toggle('failed', slot?.status === 'error');
     const month = slot ? slot.month : monthInputs[i].value;
     const reason = !initialized ? 'Loading collection settings…'
-      : busy ? 'Another month is searching or saving. Please wait.'
+      : (busy || replyRunning) ? 'Another month is searching or saving. Please wait.'
       : changed ? 'Apply the edited collection settings below before searching.'
       : !month ? 'Choose a month for this slot.'
       : slot?.status === 'saved' ? 'This month is already saved.'
@@ -149,7 +150,9 @@ function render() {
   const months = locked ? collection.slots.filter(slot => slot.month).length : monthInputs.filter(input => input.value).length;
   document.querySelector('#estimate').textContent = `${months} month${months === 1 ? '' : 's'} · up to ${(months * Number(postLimit.value)).toLocaleString()} posts · one spreadsheet`;
   if (locked && !TwittSheets.configured()) sheetsStatus.textContent = 'Set GOOGLE_CLIENT_ID in Vercel and redeploy before searching and saving months.';
+  document.dispatchEvent(new CustomEvent('twitt:collection-busy', {detail: busy}));
 }
+
 function refreshResults() {
   results = collection ? collection.slots.filter(slot => slot.searchComplete).flatMap(slot =>
     slot.rows.map(row => ({...row, collection_title: collection.title}))) : [];
@@ -176,7 +179,7 @@ async function checkpoint() {
 }
 form.addEventListener('input', render);
 monthInputs.forEach((input, index) => input.addEventListener('change', async () => {
-  if (!collection || busy || !initialized) return;
+  if (!collection || busy || replyRunning || !initialized) return;
   if (draftRequiresNew()) { render(); return; }
   const previous = collection.slots[index];
   if (!canEditMonth(index)) { input.value = previous.month; render(); return; }
@@ -226,7 +229,7 @@ function prepareCollection() {
 }
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (busy || !initialized || !prepareCollection()) return;
+  if (busy || replyRunning || !initialized || !prepareCollection()) return;
   try {
     await checkpoint();
     refreshResults();
@@ -258,7 +261,7 @@ async function searchMonth(slot) {
   } while (!slot.searchComplete);
 }
 monthButtons.forEach((button, i) => button.addEventListener('click', async () => {
-  if (busy || button.disabled || !prepareCollection()) return;
+  if (busy || replyRunning || button.disabled || !prepareCollection()) return;
   const slot = collection.slots[i];
   busy = true;
   status.classList.remove('error');
@@ -298,7 +301,7 @@ monthButtons.forEach((button, i) => button.addEventListener('click', async () =>
   } finally { busy = false; render(); }
 }));
 newButton.addEventListener('click', async () => {
-  if (busy || !confirm('Start a new collection? This clears this browser’s active collection and collected posts. Your Google spreadsheet will not be deleted.')) return;
+  if (busy || replyRunning || !confirm('Start a new collection? This clears this browser’s active collection and collected posts. Your Google spreadsheet will not be deleted.')) return;
   try {
     await CollectionStore.clear(); collection = null;
     if (csvUrl) URL.revokeObjectURL(csvUrl);
@@ -332,3 +335,5 @@ newButton.addEventListener('click', async () => {
     initialized = true; render();
   } catch (error) { status.textContent = error.message; status.classList.add('error'); }
 })();
+
+document.addEventListener('twitt:reply-running', event => { replyRunning = event.detail; render(); });
