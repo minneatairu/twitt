@@ -64,7 +64,6 @@ form.addEventListener('input', estimate);
 estimate();
 fetch('/api/index').then(r => r.json()).then(data => {
   document.querySelector('#connection').textContent = data.configured ? '● API token configured' : '○ API token needed';
-  document.querySelector('#password-field').hidden = !data.password_required;
   if (!data.configured) status.textContent = 'Configure X_BEARER_TOKEN on the server (Vercel environment variables), then redeploy. Your API token stays on the server.';
 }).catch(() => { status.textContent = 'Cannot reach the server. Refresh to retry.'; });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -106,7 +105,6 @@ form.addEventListener('submit', async event => {
   }
   const query = form.query.value;
   const budget = Number(postLimit.value);
-  const password = document.querySelector('#password').value;
   submit.disabled = true;
   download.hidden = true;
   document.querySelector('#gallery-section').hidden = true;
@@ -123,7 +121,7 @@ form.addEventListener('submit', async event => {
       let nextToken = null;
       let endTime = null;
       do {
-        const response = await fetch('/api/index', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-App-Password': password}, body: JSON.stringify({query, start: month, end: month, candidates: budget, count: Math.max(10, Math.min(100, budget - posts.size)), next_token: nextToken, end_time: endTime})});
+        const response = await fetch('/api/index', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({query, start: month, end: month, candidates: budget, count: Math.max(10, Math.min(100, budget - posts.size)), next_token: nextToken, end_time: endTime})});
         let page;
         try { page = await response.json(); } catch { throw new Error('The server did not return search results. It may have timed out; please try again.'); }
         if (!response.ok) throw new Error(page.error || 'Search request failed.');

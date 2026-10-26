@@ -6,9 +6,9 @@ with sync_playwright() as p:
  errors=[];calls=[]
  page.on('pageerror',lambda e:errors.append(str(e)))
  def route(r):
-  if r.request.method=='GET':return r.fulfill(json={'ok':True,'configured':True,'password_required':True})
+  if r.request.method=='GET':return r.fulfill(json={'ok':True,'configured':True})
   data=r.request.post_data_json;calls.append(data)
-  assert r.request.headers['x-app-password']=='test-password'
+  assert 'x-app-password' not in r.request.headers
   # 25 posts in first month exercise Show more; one in second month.
   count=10 if data['candidates']==10 else (25 if data['start']=='2024-01' else 1)
   rows=[]
@@ -19,7 +19,8 @@ with sync_playwright() as p:
  import base64
  page.route('https://pbs.twimg.com/**',lambda r:r.fulfill(content_type='image/png',body=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')))
  page.goto(os.environ.get('APP_BASE_URL', 'http://127.0.0.1:8000'))
- page.fill('#password','test-password');page.fill('#query','#climate');page.fill('#start','2024-01');page.fill('#end','2024-02')
+ assert page.locator('input[type=password]').count()==0
+ page.fill('#query','#climate');page.fill('#start','2024-01');page.fill('#end','2024-02')
  page.click('#submit');page.locator('#download').wait_for(state='visible')
  assert len(calls)==2
  assert page.locator('#gallery .post').count()==24
@@ -50,4 +51,4 @@ with sync_playwright() as p:
  assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
  assert not errors,errors
  browser.close()
- print('Browser checks passed: multi-month search, password, web preview, images, show-more, actual CSV download/content, 10-post limit without extra pagination, mobile layout. Simulated X responses.')
+ print('Browser checks passed: multi-month search without password, web preview, images, show-more, actual CSV download/content, 10-post limit without extra pagination, mobile layout. Simulated X responses.')

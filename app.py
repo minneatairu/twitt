@@ -4,7 +4,6 @@ import io
 import json
 import os
 import re
-import secrets
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -218,8 +217,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in ('/api/health', '/api/index', '/api/index.py'):
             return self.send(200, {'ok': True,
-                'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')),
-                'password_required': bool(os.environ.get('APP_PASSWORD') or os.environ.get('VERCEL'))})
+                'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN'))})
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if path in files:
             name, mime = files[path]
@@ -232,11 +230,6 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if origin and urlsplit(origin).netloc != self.headers.get('Host'):
             return self.send(403, {'error': 'Cross-origin requests are not allowed.'})
-        password = os.environ.get('APP_PASSWORD')
-        if os.environ.get('VERCEL') and not password:
-            return self.send(503, {'error': 'Set APP_PASSWORD in Vercel and redeploy before running searches.'})
-        if password and not secrets.compare_digest(self.headers.get('X-App-Password', '').encode(), password.encode()):
-            return self.send(401, {'error': 'Enter the correct access password.'})
         if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
             return self.send(415, {'error': 'JSON required'})
         try:

@@ -6,12 +6,11 @@ Search X by keyword or hashtag across a selectable month range, preview up to **
 
 1. Import this repository into Vercel, or run `npx vercel` from the repository root after authenticating with `npx vercel login`.
 2. Use the **Other** framework preset. `vercel.json` explicitly builds `api/index.py` with `@vercel/python` and `static/**` with `@vercel/static`; no frontend build or dependencies are required. Leave the project Root Directory at the repository root and remove any Output Directory override. The configuration routes `/api/index` to the Python function and serves the static home page and assets. Set the function maximum duration to at least 60 seconds in Vercel project settings if your plan supports it; upstream X requests time out after 45 seconds. Python 3.12 is pinned in `.python-version`.
-3. Add these **server-side environment variables** to the deployment environments you use:
+3. Add the **server-side environment variable** to the deployment environments you use:
    - `X_BEARER_TOKEN`: your X API bearer token with full-archive search access.
-   - `APP_PASSWORD`: a strong, unique password you enter in the app before searching. Share it only with people allowed to spend your API allowance. Hosted searches fail closed when it is missing.
-4. Deploy/redeploy to apply the variables. Open the deployed site, enter the access password, search, inspect the results, and download the CSV.
+4. Deploy/redeploy to apply the variables. Open the deployed site, search, inspect the results, and download the CSV.
 
-Do not prefix either variable with `NEXT_PUBLIC_` or expose it in frontend code. The app sends the X token only from the Python function to `https://api.x.com/2/tweets/search/all`. Vercel environment variables are separate from Codex cloud environment settings. API charges and deployment usage follow your X and Vercel plans. No Vercel project or public deployment is created merely by adding these files.
+Do not prefix the token variable with `NEXT_PUBLIC_` or expose it in frontend code. The app sends the X token only from the Python function to `https://api.x.com/2/tweets/search/all`. Vercel environment variables are separate from Codex cloud environment settings. API charges and deployment usage follow your X and Vercel plans. No Vercel project or public deployment is created merely by adding these files.
 
 ### How the hosted app works
 
@@ -19,7 +18,7 @@ Each browser request fetches one X page (up to 100 candidates), with the search 
 
 The browser collects results per month in X’s response order, renders a paginated preview of text, author, date, engagement, images, and video previews, then generates the CSV locally. Completed months become visible while later months are still collecting. A failed collection does not generate a complete CSV. Earlier completed months remain visible. Keep the tab open during collection. Results disappear on refresh, closing the tab, or starting another search; download the CSV to keep them. There is no saved-results history or shareable dataset URL.
 
-The app password protects searches, not the static home page. This is a private research tool with a shared password, not a public multi-user service. Use Vercel Deployment Protection as an additional access control where available. Anyone with your app password can use your API allowance.
+The app has no password or application login. Anyone able to access the deployment can run searches using the configured X API allowance.
 
 ## Local development
 
@@ -32,7 +31,7 @@ cd /workspace/twitt
 python3 app.py
 ```
 
-The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can override it. `APP_PASSWORD` is optional locally and mandatory when `VERCEL` is set. `.env` files are not loaded automatically. Never commit secrets. `/api/index` reports token presence and whether an access password is required, without exposing values.
+The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can override it. `.env` files are not loaded automatically. Never commit secrets. `/api/index` reports token presence, without exposing values.
 
 ## Search and result order
 
@@ -59,4 +58,4 @@ python3 -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, access control, and stateless search. Browser checks additionally exercise multi-month previews, images, show-more pagination, and the actual generated CSV download. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.
+Backend tests use simulated X responses for calendar boundaries, pagination, metadata, preservation of X result order, CSV escaping, same-origin request checks, and stateless search. Browser checks additionally exercise multi-month previews, images, show-more pagination, and the actual generated CSV download. Live API validation requires your token and uses your API allowance. Local verification does not establish a successful Vercel deployment.

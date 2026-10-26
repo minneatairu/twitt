@@ -131,20 +131,14 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(result['rows'][0]['text'], 'Test post')
             self.assertIsNone(result['next_token'])
 
-    def test_hosted_search_requires_password_configuration(self):
-        with patch.dict(os.environ, {'VERCEL': '1', 'APP_PASSWORD': ''}):
-            request = Request(self.base + '/api/index', data=b'{}', headers={'Content-Type': 'application/json'})
-            with self.assertRaises(HTTPError) as caught:
-                urlopen(request)
-            self.assertEqual(caught.exception.code, 503)
-
-    def test_password_is_enforced_before_api_usage(self):
-        with patch.dict(os.environ, {'APP_PASSWORD': 'test-password'}), patch('app.request_page') as fetch:
-            request = Request(self.base + '/api/index', data=b'{}', headers={'Content-Type': 'application/json'})
-            with self.assertRaises(HTTPError) as caught:
-                urlopen(request)
-            self.assertEqual(caught.exception.code, 401)
-            fetch.assert_not_called()
+    def test_hosted_search_does_not_require_password(self):
+        for legacy_password in ('', 'unused-old-password'):
+            with self.subTest(legacy_password_present=bool(legacy_password)), patch.dict(os.environ, {'VERCEL': '1', 'APP_PASSWORD': legacy_password}), patch('app.request_page', return_value={'data': []}) as fetch:
+                request = Request(self.base + '/api/index', data=json.dumps({'query': '#test', 'start': '2024-01', 'end': '2024-01', 'candidates': 10}).encode(), headers={'Content-Type': 'application/json'})
+                with urlopen(request) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.load(response)['rows'], [])
+                fetch.assert_called_once()
 
     def test_page_cursor_is_forwarded_without_shared_state(self):
         with patch('app.request_page', return_value={'data': [], 'meta': {'next_token': 'third'}}) as fetch:
