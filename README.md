@@ -1,6 +1,6 @@
 # Twitt
 
-Search X by keyword or hashtag across a selectable month range, preview up to **500 posts per month** with attached images, and download the same results as a metadata-rich CSV.
+Search English-language X posts by keyword or hashtag across a selectable month range, preview up to **500 posts per month** with attached images, and download the same results as a metadata-rich CSV.
 
 ## Deploy on Vercel
 
@@ -35,9 +35,9 @@ The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can over
 
 ## Search and result order
 
-Use **Posts per month → 10 · quick test** and select a single month to test with up to 10 posts. Options are 10, 50, 100, and 500 (default). These are live searches and still use your X API allowance; selecting several months applies the limit to each month.
+Use **Posts per month → 10 · quick test** and select a single month to test with up to 10 posts. Options are 5 (default), 10, 50, 100, and 500. For the smallest test, leave the default at 5. X archive search requires at least 10 results per request, so a five-post collection may fetch 10 from X while displaying/exporting only the first 5. These are live searches and still use your X API allowance; selecting several months applies the limit to each month.
 
-Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. X search operators pass through unchanged. Select an inclusive month range of up to 24 months. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
+Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. The server groups your query and appends `lang:en` to require English posts, including every OR branch. Only posts X identifies with `lang=en` are returned; language detection is supplied by X. Other search operators are preserved. Select an inclusive month range of up to 24 months. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
 
 For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it reaches your selected limit (up to 500 unique posts) or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV have the same order, grouped by month from earliest to latest. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
 

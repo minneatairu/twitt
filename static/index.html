@@ -7,10 +7,10 @@
 <div class="section-title"><span class="step">01</span><h2>Build your collection</h2></div>
 <label for="query">Keywords, hashtags, or an X search query</label>
 <textarea id="query" name="query" required maxlength="1024" rows="3" placeholder="#climate OR &quot;clean energy&quot; lang:en -is:retweet"></textarea>
-<p class="hint">Use OR for alternatives, quotes for a phrase, and # for a hashtag. Plain words match together. X search operators are supported.</p>
+<p class="hint">Use OR for alternatives, quotes for a phrase, and # for a hashtag. Plain words match together. English only (lang:en is applied automatically). X search operators are supported.</p>
 <div class="dates"><div><label for="start">From month</label><input id="start" name="start" type="month" min="2006-03" required></div><div><label for="end">Through month</label><input id="end" name="end" type="month" min="2006-03" required></div></div>
-<label for="post-limit">Posts per month</label><select id="post-limit" name="post-limit"><option value="10">10 · quick test</option><option value="50">50</option><option value="100">100</option><option value="500" selected>500 · full collection</option></select>
-<p class="hint">Choose 10 posts and one month for a small test. Uses your live X API allowance.</p>
+<label for="post-limit">Posts per month</label><select id="post-limit" name="post-limit"><option value="5" selected>5 · quick test</option><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="500">500 · full collection</option></select>
+<p class="hint">Defaults to 5 English-language posts per month. X requires fetching at least 10 per request; only your selected number is shown and exported. Uses your live X API allowance.</p>
 <p class="hint">We keep the first matching posts up to your selected limit per month in the order returned by X’s relevance search. Preview and CSV use that same order.</p>
 <div class="estimate" id="estimate"></div><button id="submit" type="submit">Collect posts <span>↗</span></button>
 <p class="hint">Uses your X API allowance. Up to 24 months per export; months with fewer matches produce fewer exported rows.</p>

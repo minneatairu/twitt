@@ -31,10 +31,10 @@ class CollectionTests(unittest.TestCase):
         def fetch(params):
             calls.append(params)
             if len(calls) == 1:
-                return {'data': [{'id': '1', 'text': 'low', 'author_id': 'a', 'public_metrics': {'like_count': 2}}],
+                return {'data': [{'lang': 'en', 'id': '1', 'text': 'low', 'author_id': 'a', 'public_metrics': {'like_count': 2}}],
                         'meta': {'next_token': 'page2'}}
-            return {'data': [{'id': '1', 'text': 'low', 'public_metrics': {'like_count': 2}},
-                             {'id': '2', 'text': 'high', 'author_id': 'a', 'attachments': {'media_keys': ['photo', 'video']}, 'public_metrics': {'like_count': 8, 'retweet_count': 3}}],
+            return {'data': [{'lang': 'en', 'id': '1', 'text': 'low', 'public_metrics': {'like_count': 2}},
+                             {'lang': 'en', 'id': '2', 'text': 'high', 'author_id': 'a', 'attachments': {'media_keys': ['photo', 'video']}, 'public_metrics': {'like_count': 8, 'retweet_count': 3}}],
                     'includes': {'users': [{'id': 'a', 'username': 'researcher'}],
                                  'media': [{'media_key': 'photo', 'type': 'photo', 'url': 'https://pbs.twimg.com/media/example.jpg', 'alt_text': 'A test image'},
                                            {'media_key': 'video', 'type': 'video', 'preview_image_url': 'https://pbs.twimg.com/media/preview.jpg'}]}}
@@ -54,8 +54,8 @@ class CollectionTests(unittest.TestCase):
     def test_500_limit_applies_to_each_month(self):
         def fetch(params):
             if 'next_token' in params:
-                return {'data': [{'id': 'extra', 'public_metrics': {'like_count': 10000}}]}
-            return {'data': [{'id': str(i), 'public_metrics': {'like_count': i}} for i in range(500)], 'meta': {'next_token': 'more'}}
+                return {'data': [{'lang': 'en', 'id': 'extra', 'public_metrics': {'like_count': 10000}}]}
+            return {'data': [{'lang': 'en', 'id': str(i), 'public_metrics': {'like_count': i}} for i in range(500)], 'meta': {'next_token': 'more'}}
         rows, summary = app.collect('test', app.month_bounds('2024-01', '2024-02'), 1000, lambda _: None, fetch, lambda _: None)
         self.assertEqual(len(rows), 1000)
         self.assertEqual([m['exported'] for m in summary], [500, 500])
@@ -66,7 +66,7 @@ class CollectionTests(unittest.TestCase):
         calls = []
         def fetch(params):
             calls.append(params)
-            return {'data': [{'id': str(i)} for i in range(10)],
+            return {'data': [{'lang': 'en', 'id': str(i)} for i in range(10)],
                     'meta': {'next_token': 'more-available'}}
         rows, summary = app.collect('test', app.month_bounds('2024-01', '2024-01'), 10,
                                     lambda _: None, fetch, lambda _: None)
@@ -75,13 +75,25 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(calls[0]['max_results'], 10)
         self.assertEqual(summary[0]['exported'], 10)
 
+    def test_five_post_collection_requests_ten_and_keeps_first_five(self):
+        calls = []
+        def fetch(params):
+            calls.append(params)
+            return {'data': [{'id': str(i), 'lang': 'en'} for i in range(10)],
+                    'meta': {'next_token': 'more'}}
+        rows, _ = app.collect('#test', app.month_bounds('2024-01', '2024-01'), 5,
+                              lambda _: None, fetch, lambda _: None)
+        self.assertEqual([row['id'] for row in rows], ['0', '1', '2', '3', '4'])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['max_results'], 10)
+
     def test_partial_api_errors_are_not_success(self):
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             app.collect('x', app.month_bounds('2024-01', '2024-01'), 500, lambda _: None,
-                        lambda _: {'data': [{'id': '1'}], 'errors': [{'title': 'error'}]}, lambda _: None)
+                        lambda _: {'data': [{'lang': 'en', 'id': '1'}], 'errors': [{'title': 'error'}]}, lambda _: None)
 
     def test_csv_unicode_newlines_and_formula_safety(self):
-        row = app.to_row({'id': '1234567890123456789', 'text': '=SUM(1,2)\n#café'}, {}, '2024-01')
+        row = app.to_row({'lang': 'en', 'id': '1234567890123456789', 'text': '=SUM(1,2)\n#café'}, {}, '2024-01')
         content = app.csv_bytes([row])
         parsed = list(csv.DictReader(io.StringIO(content.decode('utf-8-sig'))))
         self.assertEqual(parsed[0]['text'], "'=SUM(1,2)\n#café")
@@ -120,7 +132,7 @@ class ServerTests(unittest.TestCase):
                 self.assertGreater(len(response.read()), 20)
 
     def test_stateless_search_returns_preview_and_export_metadata(self):
-        payload = {'data': [{'id': '100', 'text': 'Test post', 'attachments': {'media_keys': ['photo']}}],
+        payload = {'data': [{'lang': 'en', 'id': '100', 'text': 'Test post', 'attachments': {'media_keys': ['photo']}}],
                    'includes': {'media': [{'media_key': 'photo', 'type': 'photo', 'url': 'https://pbs.twimg.com/media/test.jpg'}]}}
         with patch('app.request_page', return_value=payload):
             request = Request(self.base + '/api/index', data=json.dumps({'query': '#test', 'start': '2024-01', 'end': '2024-01', 'candidates': 500}).encode(), headers={'Content-Type': 'application/json'})
@@ -142,7 +154,7 @@ class ServerTests(unittest.TestCase):
 
     def test_page_cursor_is_forwarded_without_shared_state(self):
         with patch('app.request_page', return_value={'data': [], 'meta': {'next_token': 'third'}}) as fetch:
-            result = app.search_page({'query': '#test', 'start': '2024-01', 'end': '2024-01', 'count': 100, 'next_token': 'second'})
+            result = app.search_page({'query': '#test', 'start': '2024-01', 'end': '2024-01', 'count': 100, 'candidates': 500, 'next_token': 'second'})
             self.assertEqual(result['next_token'], 'third')
             self.assertEqual(fetch.call_args.args[0]['next_token'], 'second')
             self.assertEqual(fetch.call_args.args[0]['max_results'], 100)
@@ -162,6 +174,18 @@ class ServerTests(unittest.TestCase):
             app.search_page({'query': '#test', 'start': '2024-01', 'end': '2024-01',
                              'candidates': 10, 'count': 100})
             self.assertEqual(fetch.call_args.args[0]['max_results'], 10)
+
+    def test_english_filter_covers_or_and_excludes_other_languages(self):
+        payload = {'data': [{'id': '1', 'lang': 'en'}, {'id': '2', 'lang': 'es'},
+                            {'id': '3'}, {'id': '4', 'lang': 'en'}]}
+        with patch('app.request_page', return_value=payload) as fetch:
+            result = app.search_page({'query': '#solar OR #wind', 'start': '2024-01', 'end': '2024-01'})
+            params = fetch.call_args.args[0]
+            self.assertEqual(params['query'], '(#solar OR #wind) lang:en')
+            self.assertEqual(params['sort_order'], 'relevancy')
+            self.assertEqual(params['max_results'], 10)
+            self.assertEqual([row['id'] for row in result['rows']], ['1', '4'])
+            self.assertEqual(app.validate({'query': 'test', 'start': '2024-01', 'end': '2024-01'})[2], 5)
 
     def test_cross_origin_cannot_start_paid_search(self):
         request = Request(self.base + '/api/index', data=b'{}', headers={'Content-Type': 'application/json', 'Origin': 'https://example.com'})

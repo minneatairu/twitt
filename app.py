@@ -43,13 +43,21 @@ def month_bounds(start, end):
     return months
 
 
+def english_query(query):
+    # Group the entire user query so OR branches cannot bypass the language filter.
+    query = f'({query.strip()}) lang:en'
+    if len(query) > 1024:
+        raise ValueError('Shorten the query to leave room for the English-language filter.')
+    return query
+
+
 def validate(data):
     query = data.get('query', '')
     if not isinstance(query, str) or not query.strip() or len(query) > 1024:
         raise ValueError('Enter a search query of 1–1024 characters.')
-    budget = data.get('candidates', 500)
-    if type(budget) is not int or budget not in (10, 50, 100, 500):
-        raise ValueError('Choose 10, 50, 100, or 500 posts per month.')
+    budget = data.get('candidates', 5)
+    if type(budget) is not int or budget not in (5, 10, 50, 100, 500):
+        raise ValueError('Choose 5, 10, 50, 100, or 500 posts per month.')
     return query.strip(), month_bounds(data.get('start'), data.get('end')), budget
 
 
@@ -113,7 +121,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
         posts, users, media, next_token, seen_tokens = {}, {}, {}, None, set()
         exhausted = False
         while len(posts) < budget:
-            params = {'query': query, 'start_time': start, 'end_time': end,
+            params = {'query': english_query(query), 'start_time': start, 'end_time': end,
                       'max_results': min(500, budget - len(posts)), 'sort_order': 'relevancy',
                       'tweet.fields': 'created_at,author_id,lang,public_metrics,entities,conversation_id,in_reply_to_user_id,referenced_tweets,attachments,geo',
                       'expansions': 'author_id,attachments.media_keys',
@@ -130,7 +138,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
             for item in payload.get('includes', {}).get('media', []):
                 media[item['media_key']] = item
             for post in payload.get('data', []):
-                if len(posts) < budget or post['id'] in posts:
+                if post.get('lang') == 'en' and (len(posts) < budget or post['id'] in posts):
                     posts[post['id']] = post
             progress(f'{month}: searched {len(posts):,} candidates')
             next_token = payload.get('meta', {}).get('next_token')
@@ -169,7 +177,8 @@ def search_page(data, fetch=None):
     count = data.get('count', 100)
     if type(count) is not int or not 10 <= count <= 500:
         raise ValueError('Page size must be between 10 and 500.')
-    count = min(count, budget)
+    # X requires a minimum of ten per archive request, even for a five-post export.
+    count = max(10, min(count, budget))
     token = data.get('next_token')
     if token is not None and (not isinstance(token, str) or len(token) > 4096):
         raise ValueError('Invalid pagination token.')
@@ -183,7 +192,7 @@ def search_page(data, fetch=None):
         except (ValueError, TypeError, AttributeError):
             raise ValueError('Invalid fixed search end time.') from None
         end = fixed_end
-    params = {'query': query, 'start_time': start, 'end_time': end,
+    params = {'query': english_query(query), 'start_time': start, 'end_time': end,
               'max_results': count, 'sort_order': 'relevancy',
               'tweet.fields': 'created_at,author_id,lang,public_metrics,entities,conversation_id,in_reply_to_user_id,referenced_tweets,attachments,geo',
               'expansions': 'author_id,attachments.media_keys',
@@ -196,7 +205,7 @@ def search_page(data, fetch=None):
         raise ValueError('X returned an incomplete response. Collection stopped; retry or narrow the query.')
     users = {u['id']: u for u in payload.get('includes', {}).get('users', [])}
     media = {m['media_key']: m for m in payload.get('includes', {}).get('media', [])}
-    return {'rows': [to_row(post, users, month, media) for post in payload.get('data', [])],
+    return {'rows': [to_row(post, users, month, media) for post in payload.get('data', []) if post.get('lang') == 'en'],
             'next_token': payload.get('meta', {}).get('next_token'), 'end_time': end}
 
 
