@@ -154,12 +154,13 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
 
 def csv_bytes(rows):
     output = io.StringIO(newline='')
-    writer = csv.DictWriter(output, fieldnames=FIELDS)
+    export_fields = [field for field in FIELDS if field not in ('attachments', 'media')]
+    writer = csv.DictWriter(output, fieldnames=export_fields)
     writer.writeheader()
     for row in rows:
         # Protect spreadsheet users from formulas embedded in public post text.
         writer.writerow({k: ("'" + v if isinstance(v, str) and v.lstrip().startswith(('=', '+', '-', '@')) else v)
-                         for k, v in row.items()})
+                         for k, v in row.items() if k in export_fields})
     return output.getvalue().encode('utf-8-sig')
 
 

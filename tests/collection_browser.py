@@ -122,7 +122,7 @@ with sync_playwright() as p:
     assert header[0] == 'collection_title'
     assert header[header.index('quotes') + 1] == 'engagement'
     assert all(row[header.index('engagement')] == '' for row in writes[1]['body']['values'])
-    assert {'geo','impressions','raw_json','language','engagement_score','author_name','author_verified','author_followers','bookmarks'}.isdisjoint(header)
+    assert {'geo','impressions','raw_json','language','engagement_score','author_name','author_verified','author_followers','bookmarks','attachments','media'}.isdisjoint(header)
     assert 'valueInputOption=RAW' in writes[1]['url']
     assert writes[1]['body']['values'][0][header.index('text')] == '=SUM(1,2)\nLiteral post text'
     assert writes[1]['body']['values'][0][0] == 'Climate research collection'
@@ -183,6 +183,8 @@ with sync_playwright() as p:
     assert [row['id'] for row in rows] == [month + '-' + str(i) for month in months for i in range(5)]
     assert {row['collection_title'] for row in rows} == {'Climate research collection'}
     assert 'engagement_score' not in rows[0]
+    assert 'attachments' not in rows[0] and 'media' not in rows[0]
+    assert rows[0]['images'] == '["https://pbs.twimg.com/media/example.jpg"]'
     assert list(rows[0])[list(rows[0]).index('quotes') + 1] == 'engagement'
     assert all(row['engagement'] == '' for row in rows)
     stored = page.evaluate('async () => JSON.stringify(await CollectionStore.load())')
@@ -232,12 +234,12 @@ with sync_playwright() as p:
     # Continuing a spreadsheet created before this column keeps its old horizontal layout.
     legacy_columns = page.evaluate('''async () => {
       const legacy = {title: "Legacy", sheet: {id: "legacy-sheet", headerWritten: true, nextRow: 2}};
-      const slot = {rows: [{quotes: 4, likes: 3, id: "123", engagement: 99}], uploaded: 0, sheetStart: null, month: "2024-01"};
-      await TwittSheets.writeMonth(legacy, slot, ["id", "likes", "quotes", "engagement", "images"], "test-only-google-token", async () => {}, () => {});
+      const slot = {rows: [{quotes: 4, likes: 3, id: "123", engagement: 99, attachments: "internal keys", media: "internal metadata", images: "photo-url"}], uploaded: 0, sheetStart: null, month: "2024-01"};
+      await TwittSheets.writeMonth(legacy, slot, ["id", "likes", "quotes", "engagement", "attachments", "images", "media"], "test-only-google-token", async () => {}, () => {});
       return legacy.sheet.columns;
     }''')
-    assert legacy_columns == ['id', 'likes', 'quotes', 'images']
-    assert writes[-1]['body']['values'][0] == ['123', '3', '4', '']
+    assert legacy_columns == ['id', 'likes', 'quotes', 'attachments', 'images', 'media']
+    assert writes[-1]['body']['values'][0] == ['123', '3', '4', '', 'photo-url', '']
     assert not errors, errors
     browser.close()
     print('Collection browser checks passed: four editable month slots, saved dates protected, title separate from query, one shared sheet, green only after save, no X refetch on retry, reload recovery, CSV order, excluded columns/bookmarks, images, batching, mobile.')

@@ -104,7 +104,9 @@ class CollectionTests(unittest.TestCase):
         parsed = list(csv.DictReader(io.StringIO(content.decode('utf-8-sig'))))
         self.assertEqual(parsed[0]['text'], "'=SUM(1,2)\n#café")
         self.assertEqual(parsed[0]['id'], '1234567890123456789')
-        self.assertEqual(json.loads(parsed[0]['media']), [])
+        self.assertNotIn('media', parsed[0])
+        self.assertNotIn('attachments', parsed[0])
+        self.assertEqual(json.loads(parsed[0]['images']), [])
 
     def test_api_rate_limit_message_hides_credentials(self):
         error = HTTPError(app.API, 429, 'rate limited', {}, None)

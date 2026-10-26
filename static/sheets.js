@@ -1,7 +1,7 @@
 // No Google tokens are persisted. Each month writes fixed ranges in one shared file.
 (() => {
   const excluded = new Set(['geo', 'impressions', 'raw_json', 'engagement_score',
-    'language', 'author_verified', 'author_name', 'author_followers', 'bookmarks']);
+    'language', 'author_verified', 'author_name', 'author_followers', 'bookmarks', 'attachments', 'media']);
   let clientId = '';
   function authorize() {
     if (!clientId) throw new Error('Set GOOGLE_CLIENT_ID in Vercel and redeploy to save months to Google Sheets.');
@@ -33,10 +33,11 @@
     const sheet = collection.sheet;
     const requested = columns.filter(column => !excluded.has(column));
     // Keep active spreadsheets on their original schema so later months cannot shift data.
-    const selected = sheet.columns || (sheet.id && sheet.headerWritten
-      ? requested.filter(column => column !== 'engagement') : requested);
+    const legacy = columns.filter(column => column !== 'engagement' &&
+      (!excluded.has(column) || ['attachments', 'media'].includes(column)));
+    const selected = sheet.columns || (sheet.id && sheet.headerWritten ? legacy : requested);
     sheet.columns = selected;
-    const values = slot.rows.map(row => selected.map(key => String(key === 'collection_title' ? collection.title : key === 'engagement' ? '' : row[key] ?? '')));
+    const values = slot.rows.map(row => selected.map(key => String(key === 'collection_title' ? collection.title : key === 'engagement' || excluded.has(key) ? '' : row[key] ?? '')));
     if (values.some(row => row.some(cell => cell.length > 50000))) throw new Error('A cell exceeds Google Sheets’ 50,000-character limit. Your collected posts remain available as CSV.');
     if (!sheet.id) {
       const created = await request('', token, 'POST', {properties: {title: collection.title},

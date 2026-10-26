@@ -55,7 +55,8 @@ function csvCell(value) {
 }
 function makeDownload() {
   if (csvUrl) URL.revokeObjectURL(csvUrl);
-  const lines = [columns.map(csvCell).join(','), ...results.map(row => columns.map(key => csvCell(row[key])).join(','))];
+  const exportColumns = columns.filter(column => !['attachments', 'media'].includes(column));
+  const lines = [exportColumns.map(csvCell).join(','), ...results.map(row => exportColumns.map(key => csvCell(row[key])).join(','))];
   csvUrl = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], {type: 'text/csv;charset=utf-8'}));
   download.href = csvUrl;
   download.download = 'twitt-posts.csv';
