@@ -70,6 +70,8 @@ with sync_playwright() as p:
     months = ['2024-01', '2024-02', '2024-03', '2024-04']
     for i, month in enumerate(months):
         page.fill('#month-' + str(i), month)
+    assert page.locator('[data-slot="0"]').is_enabled()
+    assert 'Save month slot 1 first' in page.locator('#slot-status-1').inner_text()
     page.fill('#month-1', months[0])
     page.click('#submit')
     assert 'distinct months' in page.locator('#status').inner_text()
@@ -147,7 +149,8 @@ with sync_playwright() as p:
     page.fill('#collection-title', 'Second research collection')
     page.select_option('#post-limit', '500')
     for i in (1,2,3): page.fill('#month-' + str(i), '')
-    page.click('#submit')
+    # Direct month click starts the collection without the separate Start collection step.
+    assert page.locator('[data-slot="0"]').is_enabled()
     settings['fail_at'] = 'A102?'
     page.click('[data-slot="0"]')
     page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("failed")')
@@ -166,6 +169,18 @@ with sync_playwright() as p:
     assert page.locator('#gallery .post').count() == 24
     page.click('#more')
     assert page.locator('#gallery .post').count() == 48
+    # Missing Sheets configuration is explained on click rather than silently disabling all months.
+    page.click('#new-collection')
+    settings['google'] = False
+    page.reload()
+    page.wait_for_function('() => !document.querySelector("#submit").disabled')
+    page.fill('#collection-title', 'Configuration check')
+    page.fill('#query', '#climate')
+    before = len(searches)
+    page.click('[data-slot="0"]')
+    page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("failed")')
+    assert 'GOOGLE_CLIENT_ID' in page.locator('#slot-status-0').inner_text()
+    assert len(searches) == before
     assert not errors, errors
     browser.close()
     print('Collection browser checks passed: four slots, title separate from query, one shared sheet, green only after save, no X refetch on retry, reload recovery, CSV order, excluded columns/bookmarks, images, batching, mobile.')

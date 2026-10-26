@@ -83,13 +83,22 @@ function render() {
   submit.disabled = busy || !initialized;
   newButton.hidden = !locked;
   newButton.disabled = busy;
-  const next = collection?.slots.findIndex(slot => slot.month && slot.status !== 'saved');
+  const next = collection ? collection.slots.findIndex(slot => slot.month && slot.status !== 'saved')
+    : monthInputs.findIndex(input => input.value);
   monthButtons.forEach((button, i) => {
     const slot = collection?.slots[i];
     const card = document.querySelector('#slot-' + i);
     card.classList.toggle('saved', slot?.status === 'saved');
     card.classList.toggle('failed', slot?.status === 'error');
-    button.disabled = !locked || busy || !slot?.month || slot.status === 'saved' || next !== i || !TwittSheets.configured();
+    const month = slot ? slot.month : monthInputs[i].value;
+    const reason = !initialized ? 'Loading collection settings…'
+      : busy ? 'Another month is searching or saving. Please wait.'
+      : !month ? 'Choose a month for this slot.'
+      : slot?.status === 'saved' ? 'This month is already saved.'
+      : next !== i ? `Save month slot ${next + 1} first.` : '';
+    button.disabled = Boolean(reason);
+    button.title = reason || 'Search this month and save it to the collection spreadsheet.';
+    button.dataset.disabledReason = reason;
     button.textContent = slot?.status === 'saved' ? '✓ Saved to spreadsheet'
       : slot?.searchComplete ? 'Retry save to Sheets' : slot?.rows.length ? 'Resume search & save' : 'Search & save';
     document.querySelector('#slot-status-' + i).textContent = !slot ? (monthInputs[i].value ? 'Not started' : 'Not selected') : !slot.month ? 'Not selected'
@@ -99,6 +108,9 @@ function render() {
       : slot.status === 'saving' ? `Saving · ${slot.uploaded} of ${slot.rows.length} posts`
       : slot.status === 'collected' ? `Collected · ${slot.rows.length} posts · not yet saved`
       : 'Not started';
+    const slotStatus = document.querySelector('#slot-status-' + i);
+    if (reason && slot?.status !== 'saved' && slot?.status !== 'error') slotStatus.textContent = reason;
+    else if (!locked && month) slotStatus.textContent = 'Ready — click Search & save to start the collection.';
   });
   if (collection?.sheet.id) {
     sheetLink.href = 'https://docs.google.com/spreadsheets/d/' + collection.sheet.id + '/edit';
@@ -133,20 +145,26 @@ async function checkpoint() {
   render();
 }
 form.addEventListener('input', render);
-form.addEventListener('submit', async event => {
-  event.preventDefault();
-  if (busy || !initialized || collection) return;
+function prepareCollection() {
+  if (collection) return true;
+  if (!form.reportValidity()) return false;
   const months = monthInputs.map(input => input.value);
   const selected = months.filter(Boolean);
   if (!titleInput.value.trim() || !queryInput.value.trim() || !selected.length ||
       selected.some((month, i) => month < '2006-03' || month > current || (i > 0 && month <= selected[i - 1]))) {
     status.textContent = 'Enter a collection title, search query, and one to four distinct months in chronological order.';
-    return;
+    return false;
   }
   collection = {version: 1, title: titleInput.value.trim(), query: queryInput.value.trim(), limit: Number(postLimit.value),
     createdAt: new Date().toISOString(), sheet: {id: null, nextRow: 2, headerWritten: false},
     slots: months.map(month => ({month, rows: [], status: 'not_started', searchComplete: false,
       cursor: null, endTime: null, seenTokens: [], uploaded: 0, sheetStart: null, error: ''}))};
+  render();
+  return true;
+}
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (busy || !initialized || collection || !prepareCollection()) return;
   try {
     await checkpoint();
     refreshResults();
@@ -178,7 +196,7 @@ async function searchMonth(slot) {
   } while (!slot.searchComplete);
 }
 monthButtons.forEach((button, i) => button.addEventListener('click', async () => {
-  if (busy || button.disabled) return;
+  if (busy || button.disabled || !prepareCollection()) return;
   const slot = collection.slots[i];
   busy = true;
   status.classList.remove('error');
@@ -186,7 +204,9 @@ monthButtons.forEach((button, i) => button.addEventListener('click', async () =>
   render();
   try {
     // Request Google authorization immediately from the click, before any awaits or X usage.
-    const token = await TwittSheets.authorize();
+    const authorization = TwittSheets.authorize();
+    // Open Google's popup from the original click while local state is saved in parallel.
+    const [token] = await Promise.all([authorization, checkpoint()]);
     if (!slot.searchComplete) {
       slot.status = 'searching'; slot.error = '';
       await checkpoint();
