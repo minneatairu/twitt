@@ -215,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
-        if path in ('/api/health', '/api/index'):
+        if path in ('/api/health', '/api/index', '/api/index.py'):
             return self.send(200, {'ok': True,
                 'configured': bool(os.environ.get('X_BEARER_TOKEN') or os.environ.get('TWITTER_BEARER_TOKEN')),
                 'password_required': bool(os.environ.get('APP_PASSWORD') or os.environ.get('VERCEL'))})
@@ -226,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if urlsplit(self.path).path not in ('/api/search', '/api/index'):
+        if urlsplit(self.path).path not in ('/api/search', '/api/index', '/api/index.py'):
             return self.send(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and urlsplit(origin).netloc != self.headers.get('Host'):

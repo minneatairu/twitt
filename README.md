@@ -5,7 +5,7 @@ Search X by keyword or hashtag across a selectable month range, preview up to **
 ## Deploy on Vercel
 
 1. Import this repository into Vercel, or run `npx vercel` from the repository root after authenticating with `npx vercel login`.
-2. Use the **Other** framework preset. `vercel.json` sets the static output directory to `static`; no frontend build or dependencies are required. `api/index.py` is the Python function entrypoint, with a 60-second maximum duration. Python 3.12 is pinned in `.python-version`.
+2. Use the **Other** framework preset. `vercel.json` explicitly builds `api/index.py` with `@vercel/python` and `static/**` with `@vercel/static`; no frontend build or dependencies are required. Leave the project Root Directory at the repository root and remove any Output Directory override. The configuration routes `/api/index` to the Python function and serves the static home page and assets. Set the function maximum duration to at least 60 seconds in Vercel project settings if your plan supports it; upstream X requests time out after 45 seconds. Python 3.12 is pinned in `.python-version`.
 3. Add these **server-side environment variables** to the deployment environments you use:
    - `X_BEARER_TOKEN`: your X API bearer token with full-archive search access.
    - `APP_PASSWORD`: a strong, unique password you enter in the app before searching. Share it only with people allowed to spend your API allowance. Hosted searches fail closed when it is missing.

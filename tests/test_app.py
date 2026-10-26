@@ -83,6 +83,11 @@ class CollectionTests(unittest.TestCase):
 
 
 class ServerTests(unittest.TestCase):
+    def test_vercel_entrypoint_is_a_concrete_handler_class(self):
+        from api.index import handler
+        self.assertEqual(handler.__name__, 'handler')
+        self.assertTrue(issubclass(handler, app.Handler))
+
     @classmethod
     def setUpClass(cls):
         cls.server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
@@ -96,7 +101,7 @@ class ServerTests(unittest.TestCase):
         cls.server.server_close()
 
     def test_web_assets_and_health(self):
-        for path in ['/', '/app.js', '/style.css', '/api/health']:
+        for path in ['/', '/app.js', '/style.css', '/api/health', '/api/index', '/api/index.py']:
             with self.subTest(path=path), urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 20)
