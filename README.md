@@ -22,7 +22,7 @@ The app has no password or application login. Anyone able to access the deployme
 
 ## Send initial search results to Google Sheets
 
-After a complete initial search, click **Send to Google Sheets**, choose your Google account, and allow the app to create a spreadsheet. It creates a new file with a **Posts** tab containing the same rows, columns, image URLs, and X result order as the preview/CSV. It does not fetch replies or make any more X requests. You can still download CSV.
+After a complete initial search, click **Send to Google Sheets**, choose your Google account, and allow the app to create a spreadsheet. It creates a new file with a **Posts** tab containing the same post rows, image URLs, and X result order as the preview/CSV. Google Sheets exports omit `geo`, `impressions`, `raw_json`, `engagement_score`, `language`, `author_verified`, `author_name`, and `author_followers` (follower count). Likes, reposts, replies, quotes, username, and the remaining fields are retained. CSV keeps its existing columns (the calculated engagement score has already been removed from all outputs). It does not fetch replies or make any more X requests. Existing spreadsheets are not edited by this change.
 
 One-time Google setup for the deployment owner:
 

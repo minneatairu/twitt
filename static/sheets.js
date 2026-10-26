@@ -4,6 +4,8 @@
   const message = document.querySelector('#sheets-status');
   const link = document.querySelector('#open-sheet');
   const scope = 'https://www.googleapis.com/auth/drive.file';
+  const excludedColumns = new Set(['geo', 'impressions', 'raw_json', 'engagement_score',
+    'language', 'author_verified', 'author_name', 'author_followers']);
   let clientId = '';
   let dataset = null;
   let state = null;
@@ -119,7 +121,8 @@
   window.TwittSheets = {
     setClientId(value) { clientId = value || ''; update(); },
     setResults(rows, columns, title) {
-      dataset = {rows: [...rows], columns, title: title.slice(0, 200)};
+      dataset = {rows: [...rows], columns: columns.filter(column => !excludedColumns.has(column)),
+        title: title.slice(0, 200)};
       state = null;
       button.textContent = 'Send to Google Sheets';
       message.textContent = 'Creates a new spreadsheet in your Google account from these results.';

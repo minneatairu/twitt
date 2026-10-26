@@ -19,6 +19,8 @@ with sync_playwright() as p:
         start = 100 if data.get('next_token') else 0
         count = 5 if start else count
         rows = [{'id': str(1234567890123456789 + i), 'month': data['start'], 'language': 'en',
+                 'geo': '{"place_id":"test-place"}', 'impressions': 1000,
+                 'raw_json': '{"test":"raw metadata"}', 'author_verified': True, 'author_name': 'Test Author', 'author_followers': 12345,
                  'text': '=SUM(1,2)\nEnglish post', 'url': 'https://x.com/i/web/status/1',
                  'username': 'tester', 'created_at': '2024-01-01T00:00:00Z',
                  'likes': i, 'media': '[]', 'images': '["https://pbs.twimg.com/media/test.jpg"]'}
@@ -69,7 +71,9 @@ with sync_playwright() as p:
     assert 'valueInputOption=RAW' in writes[0]['url']
     values = writes[0]['body']['values']
     assert len(values) == 6
-    assert 'engagement_score' not in values[0]
+    excluded = {'geo', 'impressions', 'raw_json', 'engagement_score', 'language', 'author_verified', 'author_name', 'author_followers'}
+    assert excluded.isdisjoint(values[0])
+    assert {'likes', 'reposts', 'replies', 'quotes', 'username', 'images'}.issubset(values[0])
     assert [row[values[0].index('id')] for row in values[1:]] == [str(1234567890123456789 + i) for i in range(5)]
     assert values[1][values[0].index('id')] == '1234567890123456789'
     assert values[1][values[0].index('text')] == '=SUM(1,2)\nEnglish post'
