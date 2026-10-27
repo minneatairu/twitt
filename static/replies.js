@@ -105,14 +105,15 @@
       order.splice(order.indexOf(replyText), 1);
       order.splice(textColumn + 1, 0, replyText);
     }
-    const rows = [order.map(index => headers[index])];
+    const visibleOrder = order.filter(index => !['month','hashtag','hashtags'].includes(headers[index].trim().toLowerCase()));
+    const rows = [visibleOrder.map(index => headers[index])];
     for (const post of state.posts) {
       const thread = state.threads.find(item => item.id === post.conversationId);
       const replies = repliesFor(post, thread);
       for (const reply of replies.length ? replies : [null]) {
         const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
         const values = [...post.values, ...exportFields.map(field => String(metadata[field] ?? ''))];
-        rows.push(order.map(index => values[index]));
+        rows.push(visibleOrder.map(index => values[index]));
       }
     }
     return rows;

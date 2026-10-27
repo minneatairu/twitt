@@ -195,7 +195,7 @@ def collect(query, months, budget, progress, fetch=request_page, pause=time.slee
 
 def csv_bytes(rows):
     output = io.StringIO(newline='')
-    export_fields = [field for field in FIELDS if field not in ('attachments', 'media')]
+    export_fields = [field for field in FIELDS if field not in ('attachments', 'media', 'month', 'hashtags')]
     writer = csv.DictWriter(output, fieldnames=export_fields)
     writer.writeheader()
     for row in rows:

@@ -55,7 +55,7 @@ function csvCell(value) {
 }
 function makeDownload() {
   if (csvUrl) URL.revokeObjectURL(csvUrl);
-  const exportColumns = columns.filter(column => !['attachments', 'media'].includes(column));
+  const exportColumns = columns.filter(column => !['attachments', 'media', 'month', 'hashtags'].includes(column));
   const lines = [exportColumns.map(csvCell).join(','), ...results.map(row => exportColumns.map(key => csvCell(row[key])).join(','))];
   csvUrl = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], {type: 'text/csv;charset=utf-8'}));
   download.href = csvUrl;
@@ -213,7 +213,7 @@ function showPrevious(previous) {
   if (!previous) return;
   document.querySelector('#previous-collection').hidden = false;
   const rows = previous.slots.filter(slot => slot.searchComplete).flatMap(slot => slot.rows.map(row => ({...row, collection_title: previous.title})));
-  const fields = columns.filter(field => !['attachments','media'].includes(field));
+  const fields = columns.filter(field => !['attachments','media','month','hashtags'].includes(field));
   const lines = [fields.map(csvCell).join(','), ...rows.map(row => fields.map(field => csvCell(row[field])).join(','))];
   if (previousUrl) URL.revokeObjectURL(previousUrl);
   previousUrl = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n') + '\r\n'], {type:'text/csv;charset=utf-8'}));
