@@ -20,7 +20,7 @@ with sync_playwright() as p:
     page.route('**/api/index',api)
     page.goto(os.environ.get('APP_BASE_URL','http://127.0.0.1:8012'))
     page.wait_for_function("() => !document.getElementById('prepare-replies').disabled")
-    page.locator('#selected-posts-file').set_input_files({'name':'selected.csv','mimeType':'text/csv','buffer':b'id,conversation_id,replies\n100,100,2\n200,100,1\n'})
+    page.locator('#selected-posts-file').set_input_files({'name':'selected.csv','mimeType':'text/csv','buffer':b'id,conversation_id,replies,text\n100,100,2,Original tweet\n200,100,1,Second selected tweet\n'})
     page.locator('#prepare-replies').click()
     page.locator('#run-replies').click()
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('collection complete')")
@@ -32,7 +32,8 @@ with sync_playwright() as p:
     with open(download.value.path(),encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
     assert len(rows)==3
     assert len({row['reply_id'] for row in rows})==3
-    assert [row['id'] for row in rows]==['','','100']
+    assert [row['id'] for row in rows]==['100','100','100']
+    assert all(row['text']=='Original tweet' for row in rows)
     assert all(row['reply_conversation_selected_post_ids']=='["100","200"]' for row in rows)
     excluded = {'reply_likes','reply_reposts','reply_replies','reply_quotes','reply_images','reply_collection_status','reply_collected_count','reply_window_start','reply_window_end'}
     assert not excluded.intersection(rows[0])

@@ -110,14 +110,16 @@
     const selectedById = new Map(state.posts.map(post => [post.id, post]));
     const seen = new Set();
     for (const thread of state.threads) {
-      const selectedIds = state.posts.filter(post => post.conversationId === thread.id).map(post => post.id);
+      const selectedPosts = state.posts.filter(post => post.conversationId === thread.id);
+      const selectedIds = selectedPosts.map(post => post.id);
+      const conversationPost = selectedPosts.find(post => post.id === thread.id) || selectedPosts[0];
       for (const reply of thread.replies) {
         if (seen.has(reply.id)) continue;
         seen.add(reply.id);
-        // Only show uploaded post context when X identifies that exact post as
-        // this reply's parent. Conversation membership alone is not parentage.
+        // Prefer the actual selected parent; otherwise repeat a selected tweet
+        // from this conversation. Keep the actual parent ID separate and unchanged.
         const parent = selectedById.get(reply.parent_post_id);
-        const context = parent?.conversationId === thread.id ? parent.values : state.headers.map(() => '');
+        const context = parent?.conversationId === thread.id ? parent.values : conversationPost.values;
         const metadata = {...reply, conversation_selected_post_ids:JSON.stringify(selectedIds)};
         const values = [...context, ...exportFields.map(field => String(metadata[field] ?? ''))];
         rows.push(visibleOrder.map(index => values[index]));
