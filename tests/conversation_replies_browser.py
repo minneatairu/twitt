@@ -29,6 +29,9 @@ with sync_playwright() as p:
         page.locator('#download-combined').click()
     with open(download.value.path(),encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
     assert len(rows)==4
+    excluded = {'reply_likes','reply_reposts','reply_replies','reply_quotes','reply_images','reply_collection_status','reply_collected_count'}
+    assert not excluded.intersection(rows[0])
+    assert {'reply_id','reply_post_type','reply_parent_post_id','reply_conversation_id','reply_window_start','reply_window_end'}.issubset(rows[0])
     assert [row['reply_parent_post_id'] for row in rows]==['999','','999','']
     page.reload()
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")

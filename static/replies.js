@@ -21,6 +21,7 @@
   const replyFields = ['id','post_type','url','text','created_at','author_id','username','conversation_id','parent_post_id',
     'likes','reposts','replies','quotes','images'];
   const extraFields = [...replyFields, 'collection_status','collected_count','window_start','window_end'];
+  const exportFields = extraFields.filter(field => !['likes','reposts','replies','quotes','images','collection_status','collected_count'].includes(field));
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const isId = value => typeof value === 'string' && /^[1-9][0-9]{0,24}$/.test(value);
   function normalizeId(value) { return value.trim().replace(/^'/, ''); }
@@ -504,14 +505,14 @@
   };
   q('download-combined').addEventListener('click', () => {
     if (!state) return;
-    const headers = [...state.headers, ...extraFields.map(field => state.prefix + field)];
+    const headers = [...state.headers, ...exportFields.map(field => state.prefix + field)];
     const lines = [headers.map(cell).join(',')];
     for (const post of state.posts) {
       const thread = state.threads.find(item => item.id === post.conversationId);
       const replies = repliesFor(post, thread);
       for (const reply of replies.length ? replies : [null]) {
-        const values = [...post.values, ...replyFields.map(field => reply?.[field] ?? ''), postStatus(post, thread),
-          String(replies.length), state.window.start, state.window.end];
+        const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
+        const values = [...post.values, ...exportFields.map(field => metadata[field] ?? '')];
         lines.push(values.map(cell).join(','));
       }
     }

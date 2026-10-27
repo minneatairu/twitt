@@ -115,8 +115,8 @@ with sync_playwright() as p:
     assert len(partial)==502
     assert partial[0]['engagement']=='42.5'
     assert partial[0]['text']=='Selected root, with comma\nand newline'
-    assert all(item['reply_collection_status']!='complete' for item in partial)
-    assert partial[-1]['reply_collection_status']=='paused_budget'
+    assert 'reply_collection_status' not in partial[0]
+    assert 'paused_budget' in page.locator('#reply-summary').inner_text()
     assert partial[-1]['reply_id']==''
     before=len(calls)
     page.reload()
@@ -155,8 +155,8 @@ with sync_playwright() as p:
     empty=[item for item in result if item['id']=='300']
     assert len(root)==502 and len(child)==1 and len(empty)==1
     assert len({item['reply_id'] for item in root+child})==503
-    assert all(item['reply_collection_status']=='complete' for item in root+child)
-    assert empty[0]['reply_collection_status']=='complete_no_replies' and empty[0]['reply_id']==''
+    assert empty[0]['reply_id']==''
+    assert 'complete_no_replies' in other.locator('#reply-summary').inner_text()
     assert {item['engagement'] for item in root}=={'42.5'}
     assert child[0]['reply_parent_post_id']=='200'
     assert all(item['reply_parent_post_id']=='100' for item in root)
@@ -230,7 +230,7 @@ with sync_playwright() as p:
     assert len([item for item in small if item['id']=='100'])==50
     assert len([item for item in small if item['id']=='200'])==25
     assert len([item for item in small if item['id']=='300'])==25
-    assert all(item['reply_collection_status']=='complete' for item in small)
+    assert all(thread['complete'] for thread in json.loads(checkpoint(other))['threads'])
 
     # Large ID lists split by query length, visibly before any requests.
     large='id,conversation_id\n'+'\n'.join(f'{1000000000000000000+i},{1000000000000000000+i}' for i in range(40))+'\n'

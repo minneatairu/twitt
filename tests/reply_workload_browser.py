@@ -45,7 +45,8 @@ with sync_playwright() as p:
     with page.expect_download() as download:
         page.locator('#download-combined').click()
     text = open(download.value.path(), encoding='utf-8-sig').read()
-    assert text.count('skipped_zero_reported_replies') == 2
+    assert 'reply_collection_status' not in text
+    assert 'skipped_zero_reported_replies' in page.locator('#reply-summary').inner_text()
     page.reload()
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
     assert 'minimum 0 more API calls' in page.locator('#reply-plan').inner_text()
