@@ -79,6 +79,30 @@
       if (slot.uploaded < values.length) await new Promise(resolve => setTimeout(resolve, 1100));
     }
   }
+  async function writeTable(title, values, sheet, token, checkpoint, progress) {
+    if (!values.length || values.some(row => row.length !== values[0].length || row.some(value => String(value).length > 50000))) throw new Error('The export contains an invalid row or a cell over Google’s 50,000-character limit. Download CSV instead.');
+    const properties = {sheetId:0, title:'Replies', gridProperties:{rowCount:Math.max(2, values.length), columnCount:values[0].length, frozenRowCount:1}};
+    if (!sheet.id) {
+      const created = await request('', token, 'POST', {properties:{title}, sheets:[{properties}]});
+      if (!/^[A-Za-z0-9_-]+$/.test(created.spreadsheetId || '')) throw new Error('Google returned an invalid spreadsheet ID.');
+      sheet.id = created.spreadsheetId;
+      await checkpoint();
+    } else {
+      await request('/' + sheet.id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties, fields:'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}}]});
+    }
+    for (let offset=0; offset<values.length;) {
+      const batch=[]; let bytes=0;
+      while (offset+batch.length<values.length && batch.length<100) {
+        const row=values[offset+batch.length]; const size=new TextEncoder().encode(JSON.stringify(row)).length;
+        if (batch.length && bytes+size>1000000) break;
+        batch.push(row); bytes+=size;
+      }
+      await request('/' + sheet.id + '/values/' + encodeURIComponent("'Replies'!A" + (offset+1)) + '?valueInputOption=RAW', token, 'PUT', {majorDimension:'ROWS', values:batch});
+      offset+=batch.length;
+      progress(`Saving replies to Google Drive: ${Math.max(0,offset-1)} of ${values.length-1} rows.`);
+      if (offset<values.length) await new Promise(resolve => setTimeout(resolve,1100));
+    }
+  }
   window.TwittSheets = {setClientId(value) { clientId = value || ''; },
-    configured() { return Boolean(clientId); }, authorize, writeMonth};
+    configured() { return Boolean(clientId); }, authorize, writeMonth, writeTable};
 })();

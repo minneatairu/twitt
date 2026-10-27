@@ -14,6 +14,7 @@
   start.value = '2006-03-21'; end.value = today;
   let state = null;
   let running = false;
+  let exporting = false;
   let ready = false;
   let stop = false;
   let initialBusy = false;
@@ -21,7 +22,7 @@
   const replyFields = ['id','post_type','url','text','created_at','author_id','username','conversation_id','parent_post_id',
     'likes','reposts','replies','quotes','images'];
   const extraFields = [...replyFields, 'collection_status','collected_count','window_start','window_end'];
-  const exportFields = extraFields.filter(field => !['likes','reposts','replies','quotes','images','collection_status','collected_count'].includes(field));
+  const exportFields = extraFields.filter(field => !['likes','reposts','replies','quotes','images','collection_status','collected_count','window_start','window_end'].includes(field));
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const isId = value => typeof value === 'string' && /^[1-9][0-9]{0,24}$/.test(value);
   function normalizeId(value) { return value.trim().replace(/^'/, ''); }
@@ -87,6 +88,24 @@
   function searchThreads(job) {
     const eligible = new Set(job.posts.filter(post => !skipped(post, job)).map(post => post.conversationId));
     return job.threads.filter(thread => eligible.has(thread.id));
+  }
+  function sourceName(job) {
+    const index = job.headers.findIndex(value => value.trim().toLowerCase() === 'collection_title');
+    const fallback = index < 0 ? '' : job.posts[0]?.values[index];
+    return (job.sourceFilename || fallback || 'selected-posts').replace(/\.csv$/i, '').replace(/[\/\\\x00-\x1f]/g, '_').slice(0,180);
+  }
+  function exportTitle(job) { return 'Replies_' + sourceName(job); }
+  function exportTable() {
+    const rows = [[...state.headers, ...exportFields.map(field => state.prefix + field)]];
+    for (const post of state.posts) {
+      const thread = state.threads.find(item => item.id === post.conversationId);
+      const replies = repliesFor(post, thread);
+      for (const reply of replies.length ? replies : [null]) {
+        const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
+        rows.push([...post.values, ...exportFields.map(field => String(metadata[field] ?? ''))]);
+      }
+    }
+    return rows;
   }
   function repliesFor(post, thread) {
     if (skipped(post, state)) return [];
@@ -208,7 +227,8 @@
     }
     let prefix = 'reply_';
     while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
-    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, scope, skipZeroReplies: policy.skipZeroReplies,
+    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, scope, sourceFilename:typeof input.sourceFilename === 'string' ? input.sourceFilename.slice(0,200) : '',
+      replySheet:input.replySheet && /^[A-Za-z0-9_-]+$/.test(input.replySheet.id || '') ? {id:input.replySheet.id} : {}, skipZeroReplies: policy.skipZeroReplies,
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
       retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: batches.every(thread => thread.complete) ? 'complete' : 'paused',
@@ -230,17 +250,20 @@
   }
   function render() {
     q('reply-controls').hidden = !state;
-    run.disabled = !ready || running || initialBusy || !state || state.batches.every(thread => thread.complete);
+    run.disabled = !ready || running || exporting || initialBusy || !state || state.batches.every(thread => thread.complete);
     pause.disabled = !running;
     q('convert-conversation').hidden = !state || state.scope === 'conversation';
-    q('convert-conversation').disabled = running || !ready;
-    q('clear-replies').disabled = running || !ready;
-    [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || !ready; });
-    start.disabled = end.disabled = q('reply-page-size').disabled = running || !ready;
+    q('convert-conversation').disabled = running || exporting || !ready;
+    q('clear-replies').disabled = running || exporting || !ready;
+    [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || exporting || !ready; });
+    start.disabled = end.disabled = q('reply-page-size').disabled = running || exporting || !ready;
     if (state) q('reply-plan').textContent = workload(state);
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
     q('restart-reply-cursor').hidden = !state?.batches.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
-    q('restart-reply-cursor').disabled = running;
+    q('restart-reply-cursor').disabled = running || exporting;
+    q('save-replies-drive').disabled = running || exporting || !ready || !state;
+    q('open-replies-sheet').hidden = !state?.replySheet?.id;
+    if (state?.replySheet?.id) q('open-replies-sheet').href = 'https://docs.google.com/spreadsheets/d/' + state.replySheet.id + '/edit';
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
     for (const label of ['Selected post', 'Reported replies (CSV)', 'Replies collected (shared conversation)', 'Shared batch pages', 'Status', 'Preview']) {
@@ -297,7 +320,7 @@
   }
   function showError(error) { status.textContent = error.message || 'Reply collection failed.'; status.classList.add('error'); }
   source.addEventListener('change', async () => {
-    if (running || !source.files[0] || state) return;
+    if (running || exporting || !source.files[0] || state) return;
     try {
       if (source.files[0].size > 32 * 1024 * 1024) throw new Error('Selected-posts CSV must be at most 32 MiB.');
       const table = selectedTable(parseCSV(await source.files[0].text()));
@@ -308,7 +331,7 @@
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (running || !ready || !source.files[0]) return;
+    if (running || exporting || !ready || !source.files[0]) return;
     try {
       await exclusive(async () => {
         const existing = await CollectionStore.loadReplies();
@@ -325,7 +348,7 @@
         const skipZeroReplies = q('skip-zero-replies').checked;
         const batches = makeBatches(searchThreads({...table, threads, skipZeroReplies}));
         const next = {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table,
-          threads, batches, prefix, scope:'conversation', skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
+          threads, batches, prefix, scope:'conversation', sourceFilename:source.files[0].name, replySheet:{}, skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
           retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.${batches.length ? '' : ' All posts were explicitly skipped; no searches are needed.'}`};
         await CollectionStore.saveReplies(next); state = next; previewId = null;
         status.classList.remove('error'); render();
@@ -333,7 +356,7 @@
     } catch (error) { showError(error); }
   });
   checkpointFile.addEventListener('change', async () => {
-    if (running || !ready || !checkpointFile.files[0]) return;
+    if (running || exporting || !ready || !checkpointFile.files[0]) return;
     try {
       await exclusive(async () => {
         if (checkpointFile.files[0].size > 64 * 1024 * 1024) throw new Error('Checkpoint must be at most 64 MiB.');
@@ -348,7 +371,7 @@
     finally { checkpointFile.value = ''; }
   });
   q('convert-conversation').addEventListener('click', async () => {
-    if (running || !ready || !state || !confirm('Switch to all replies in each selected conversation? Existing replies are retained. Previously started batches must be searched again from their first page to recover nested replies discarded by the old mode. This prepares the job without API calls; Start / resume uses additional allowance. Download a checkpoint first if you need the original job.')) return;
+    if (running || exporting || !ready || !state || !confirm('Switch to all replies in each selected conversation? Existing replies are retained. Previously started batches must be searched again from their first page to recover nested replies discarded by the old mode. This prepares the job without API calls; Start / resume uses additional allowance. Download a checkpoint first if you need the original job.')) return;
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
@@ -364,7 +387,7 @@
     } catch (error) { showError(error); }
   });
   q('clear-replies').addEventListener('click', async () => {
-    if (running || !ready || !confirm('Clear the saved replies job and its collected replies from this browser? Download a checkpoint first if you need to keep progress. Original files and Google spreadsheets are unchanged.')) return;
+    if (running || exporting || !ready || !confirm('Clear the saved replies job and its collected replies from this browser? Download a checkpoint first if you need to keep progress. Original files and Google spreadsheets are unchanged.')) return;
     try {
       await exclusive(async () => {
         await CollectionStore.clearReplies();
@@ -476,11 +499,11 @@
     }
   }
   run.addEventListener('click', async () => {
-    if (!state || !ready || running || initialBusy) return;
+    if (!state || !ready || running || exporting || initialBusy) return;
     try { await exclusive(collect); } catch (error) { showError(error); }
   });
   q('restart-reply-cursor').addEventListener('click', async () => {
-    if (running || !state || !confirm('Restart the rejected search batch from its first page? Already collected replies are retained and deduplicated. This uses additional API allowance.')) return;
+    if (running || exporting || !state || !confirm('Restart the rejected search batch from its first page? Already collected replies are retained and deduplicated. This uses additional API allowance.')) return;
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
@@ -505,18 +528,28 @@
   };
   q('download-combined').addEventListener('click', () => {
     if (!state) return;
-    const headers = [...state.headers, ...exportFields.map(field => state.prefix + field)];
-    const lines = [headers.map(cell).join(',')];
-    for (const post of state.posts) {
-      const thread = state.threads.find(item => item.id === post.conversationId);
-      const replies = repliesFor(post, thread);
-      for (const reply of replies.length ? replies : [null]) {
-        const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
-        const values = [...post.values, ...exportFields.map(field => metadata[field] ?? '')];
-        lines.push(values.map(cell).join(','));
-      }
-    }
-    download('twitt-posts-with-replies.csv', '\uFEFF' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+    const lines = exportTable().map(row => row.map(cell).join(','));
+    download(exportTitle(state) + '.csv', '\uFEFF' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  });
+  q('save-replies-drive').addEventListener('click', async () => {
+    if (!state || !ready || running || exporting || initialBusy) return;
+    exporting = true; render();
+    try {
+      // Start authorization synchronously from the click so browsers permit its popup.
+      const authorization = TwittSheets.authorize();
+      const token = await authorization;
+      await exclusive(async () => {
+        const latest = await CollectionStore.loadReplies();
+        if (!latest || latest.id !== state.id) throw new Error('Reply job changed in another tab. Refresh before saving.');
+        state = validateCheckpoint(latest); state.id = latest.id;
+        state.replySheet ||= {};
+        await TwittSheets.writeTable(exportTitle(state), exportTable(), state.replySheet, token, save, message => { status.textContent = message; });
+        await save();
+        state.message = `Saved ${exportTitle(state)} to Google Drive as a Google spreadsheet. No X API calls were made. Saving again updates this same spreadsheet.`;
+        await save(); status.classList.remove('error');
+      });
+    } catch (error) { if (state) state.message = error.message; showError(error); }
+    finally { exporting = false; render(); }
   });
   q('download-reply-checkpoint').addEventListener('click', () => {
     if (state) download('twitt-replies-checkpoint.json', JSON.stringify(state), 'application/json');
