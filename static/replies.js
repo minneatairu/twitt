@@ -22,7 +22,7 @@
   const replyFields = ['id','post_type','url','text','created_at','author_id','username','conversation_id','parent_post_id',
     'likes','reposts','replies','quotes','images'];
   const extraFields = [...replyFields, 'conversation_selected_post_ids', 'collection_status','collected_count','window_start','window_end'];
-  const exportFields = extraFields.filter(field => !['likes','reposts','replies','quotes','images','collection_status','collected_count','window_start','window_end'].includes(field));
+  const exportFields = ['id','url','text'];
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const isId = value => typeof value === 'string' && /^[1-9][0-9]{0,24}$/.test(value);
   function normalizeId(value) { return value.trim().replace(/^'/, ''); }

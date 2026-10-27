@@ -144,3 +144,5 @@ Combined CSV and Google replies exports place reply text immediately after the u
 Exports omit `month` and `hashtags` columns. Combined reply exports also omit an uploaded `hashtag` column. Original uploaded data and checkpoint metadata remain intact; existing initial-search spreadsheets retain their pinned layout.
 
 `tests/session_only_browser.py` verifies that old IndexedDB jobs are ignored, refresh starts empty, tabs remain independent, CSV replacement has no local-job prompts, and checkpoints resume only through explicit import. Browser regression tests use `browser_helpers.reload_with_checkpoint` to simulate a deliberate checkpoint export/import across reload.
+
+Reply export columns are now limited to reply ID, URL, and text, beside the related uploaded tweet columns. Reply timestamps, author ID/username, conversation/parent IDs and the selected-post ID list remain internal/checkpoint metadata and are omitted from CSV and Google Sheets.

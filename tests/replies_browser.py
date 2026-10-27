@@ -158,8 +158,9 @@ with sync_playwright() as p:
     assert len({item['reply_id'] for item in root+child})==503
     assert 'complete_no_replies' in other.locator('#reply-summary').inner_text()
     assert {item['engagement'] for item in root}=={'42.5'}
-    assert child[0]['reply_parent_post_id']=='200'
-    assert all(item['reply_parent_post_id']=='100' for item in root)
+    assert 'reply_parent_post_id' not in child[0]
+    retained=json.loads(checkpoint(other))['threads'][0]['replies']
+    assert any(reply['parent_post_id']=='200' for reply in retained)
     other.locator('#reply-summary button').first.click()
     assert other.locator('#reply-preview .reply-card').count()==25
     assert other.locator('#reply-preview img').first.get_attribute('src')=='https://pbs.twimg.com/media/reply.jpg'
