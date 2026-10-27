@@ -16,7 +16,7 @@ ROOT = Path(__file__).parent
 API = 'https://api.x.com/2/tweets/search/all'
 FIELDS = ['month', 'id', 'url', 'text', 'created_at', 'author_id', 'username',
           'author_name', 'author_verified', 'author_followers', 'language',
-          'likes', 'reposts', 'replies', 'quotes', 'engagement', 'bookmarks', 'impressions',
+          'likes', 'reposts', 'replies', 'quotes', 'bookmarks', 'impressions',
           'hashtags', 'mentions', 'urls', 'conversation_id',
           'in_reply_to_user_id', 'referenced_posts', 'attachments', 'images', 'media', 'geo', 'raw_json']
 

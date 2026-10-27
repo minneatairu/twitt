@@ -47,7 +47,7 @@ async function showPosts() {
   } finally { more.disabled = false; }
 }
 more.addEventListener('click', () => showPosts().catch(error => { status.textContent = error.message; }));
-const columns = ['collection_title','month','id','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','engagement','bookmarks','impressions','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
+const columns = ['collection_title','month','id','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','bookmarks','impressions','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
 function csvCell(value) {
   let text = String(value ?? '');
   if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
@@ -64,8 +64,8 @@ function makeDownload() {
 }
 const titleInput = document.querySelector('#collection-title');
 const queryInput = document.querySelector('#query');
-const monthInputs = [...document.querySelectorAll('.month-slot input')];
-const monthButtons = [...document.querySelectorAll('.month-action')];
+const monthInput = document.querySelector('#month-0');
+const searchButton = document.querySelector('#search-month');
 const newButton = document.querySelector('#new-collection');
 const sheetsStatus = document.querySelector('#sheets-status');
 const sheetLink = document.querySelector('#open-sheet');
@@ -75,265 +75,184 @@ let collection = null;
 let busy = false;
 let replyRunning = false;
 let initialized = false;
-monthInputs.forEach(input => { input.max = current; });
-monthInputs[0].value = current;
-
-function monthStarted(slot) {
-  return slot.searchComplete || slot.rows.length > 0 || Boolean(slot.cursor) || slot.seenTokens.length > 0 ||
-    slot.sheetStart != null || slot.uploaded > 0 || slot.status === 'saved';
+let previousUrl = null;
+let previousJsonUrl = null;
+monthInput.max = current;
+monthInput.value = current;
+function hasData() {
+  return Boolean(collection && (collection.searchComplete || collection.rows.length || collection.cursor ||
+    collection.seenTokens.length || collection.sheet.id));
 }
-function canEditMonth(index) {
-  // Do not insert an earlier month ahead of rows already written to the shared sheet.
-  return !collection || !collection.slots.slice(index).some(monthStarted);
-}
-function identityChanged() {
-  return collection && (titleInput.value.trim() !== collection.title || queryInput.value.trim() !== collection.query ||
-    Number(postLimit.value) !== collection.limit);
-}
-function draftRequiresNew() {
-  return Boolean(identityChanged() || (collection && monthInputs.some((input, index) =>
-    input.value !== collection.slots[index].month && !canEditMonth(index))));
+function settingsChanged() {
+  return Boolean(collection && (titleInput.value.trim() !== collection.title || queryInput.value.trim() !== collection.query ||
+    Number(postLimit.value) !== collection.limit || monthInput.value !== collection.month));
 }
 function render() {
-  const locked = Boolean(collection);
-  const changed = draftRequiresNew();
-  [titleInput, queryInput, postLimit].forEach(input => { input.disabled = busy || replyRunning; });
-  monthInputs.forEach((input, index) => {
-    input.disabled = (busy || replyRunning) || (!changed && !canEditMonth(index));
-    input.title = !initialized ? 'Loading collection settings…' : (busy || replyRunning) ? 'Wait until the current action finishes.'
-      : !changed && !canEditMonth(index) ? 'This month or a later month already has collected results. Use an unsearched later slot.'
-      : 'Choose or change this month. No search runs until you click Search & save.';
-  });
-  submit.hidden = locked && !changed;
-  submit.textContent = changed ? collection.slots.some(monthStarted) || collection.sheet.id
-    ? 'Start new collection with these settings' : 'Apply collection settings' : 'Start collection';
-  document.querySelector('#settings-status').textContent = changed
-    ? `Edits are not applied yet. Saved results still belong to “${collection.title}”. Use ${submit.textContent} below.`
-    : collection ? 'Collection title and query can be edited. Unsearched later months can be changed without starting over.' : '';
-  submit.disabled = (busy || replyRunning) || !initialized;
-  newButton.hidden = !locked;
-  newButton.disabled = busy || replyRunning;
-  const next = collection ? collection.slots.findIndex(slot => slot.month && slot.status !== 'saved')
-    : monthInputs.findIndex(input => input.value);
-  monthButtons.forEach((button, i) => {
-    const slot = collection?.slots[i];
-    const card = document.querySelector('#slot-' + i);
-    card.classList.toggle('saved', slot?.status === 'saved');
-    card.classList.toggle('failed', slot?.status === 'error');
-    const month = slot ? slot.month : monthInputs[i].value;
-    const reason = !initialized ? 'Loading collection settings…'
-      : (busy || replyRunning) ? 'Another month is searching or saving. Please wait.'
-      : changed ? 'Apply the edited collection settings below before searching.'
-      : !month ? 'Choose a month for this slot.'
-      : slot?.status === 'saved' ? 'This month is already saved.'
-      : next !== i ? `Save month slot ${next + 1} first.` : '';
-    button.disabled = Boolean(reason);
-    button.title = reason || 'Search this month and save it to the collection spreadsheet.';
-    button.dataset.disabledReason = reason;
-    button.textContent = slot?.status === 'saved' ? '✓ Saved to spreadsheet'
-      : slot?.searchComplete ? 'Retry save to Sheets' : slot?.rows.length ? 'Resume search & save' : 'Search & save';
-    document.querySelector('#slot-status-' + i).textContent = !slot ? (monthInputs[i].value ? 'Not started' : 'Not selected') : !slot.month ? 'Not selected'
-      : slot.status === 'saved' ? `Saved · ${slot.rows.length} posts`
-      : slot.status === 'error' ? slot.error
-      : slot.status === 'searching' ? `Searching · ${slot.rows.length} posts collected`
-      : slot.status === 'saving' ? `Saving · ${slot.uploaded} of ${slot.rows.length} posts`
-      : slot.status === 'collected' ? `Collected · ${slot.rows.length} posts · not yet saved`
-      : 'Not started';
-    const slotStatus = document.querySelector('#slot-status-' + i);
-    if (reason && slot?.status !== 'saved' && slot?.status !== 'error') slotStatus.textContent = reason;
-    else if (!locked && month) slotStatus.textContent = 'Ready — click Search & save to start the collection.';
-  });
+  const active = busy || replyRunning;
+  const changed = settingsChanged();
+  [titleInput, queryInput, postLimit, monthInput].forEach(input => { input.disabled = active; });
+  submit.hidden = Boolean(collection) && !changed;
+  submit.disabled = active || !initialized;
+  submit.textContent = changed ? hasData() ? 'Start new collection with these settings' : 'Apply search settings' : 'Start collection';
+  newButton.hidden = !collection;
+  newButton.disabled = active;
+  const reason = !initialized ? 'Loading search settings…' : active ? 'A search or upload is in progress. Please wait.'
+    : !monthInput.value ? 'Choose a search month.' : collection?.status === 'saved' && !changed ? 'This search is already saved.' : '';
+  searchButton.disabled = Boolean(reason);
+  searchButton.title = reason || 'Search this month and save it to a spreadsheet.';
+  searchButton.textContent = changed || !collection ? 'Search & save' : collection.status === 'saved' ? '✓ Saved to spreadsheet'
+    : collection.searchComplete ? 'Retry save to Sheets' : collection.rows.length ? 'Resume search & save' : 'Search & save';
+  const card = document.querySelector('#slot-0');
+  card.classList.toggle('saved', collection?.status === 'saved' && !changed);
+  card.classList.toggle('failed', collection?.status === 'error' && !changed);
+  document.querySelector('#slot-status-0').textContent = changed ? 'Edited settings have not been applied. Search & save starts the updated search.'
+    : collection?.status === 'saved' ? `Saved · ${collection.rows.length} posts`
+    : collection?.status === 'error' ? collection.error : collection?.status === 'searching' ? `Searching · ${collection.rows.length} posts`
+    : collection?.status === 'saving' ? `Saving · ${collection.uploaded} of ${collection.rows.length} posts`
+    : reason || 'Ready — click Search & save.';
+  document.querySelector('#settings-status').textContent = changed && hasData()
+    ? `Your existing results still belong to “${collection.title}” (${collection.month}). Applying edits starts a separate spreadsheet.` : '';
   if (collection?.sheet.id) {
-    sheetLink.href = 'https://docs.google.com/spreadsheets/d/' + collection.sheet.id + '/edit';
-    sheetLink.hidden = false;
+    sheetLink.href = 'https://docs.google.com/spreadsheets/d/' + collection.sheet.id + '/edit'; sheetLink.hidden = false;
   } else { sheetLink.hidden = true; sheetLink.removeAttribute('href'); }
-  const months = locked ? collection.slots.filter(slot => slot.month).length : monthInputs.filter(input => input.value).length;
-  document.querySelector('#estimate').textContent = `${months} month${months === 1 ? '' : 's'} · up to ${(months * Number(postLimit.value)).toLocaleString()} posts · one spreadsheet`;
-  if (locked && !TwittSheets.configured()) sheetsStatus.textContent = 'Set GOOGLE_CLIENT_ID in Vercel and redeploy before searching and saving months.';
+  document.querySelector('#estimate').textContent = `One month · up to ${postLimit.value} posts · one spreadsheet`;
+  if (collection && !TwittSheets.configured()) sheetsStatus.textContent = 'Set GOOGLE_CLIENT_ID in Vercel and redeploy before searching and saving.';
   document.dispatchEvent(new CustomEvent('twitt:collection-busy', {detail: busy}));
 }
-
 function refreshResults() {
-  results = collection ? collection.slots.filter(slot => slot.searchComplete).flatMap(slot =>
-    slot.rows.map(row => ({...row, collection_title: collection.title}))) : [];
+  results = collection?.searchComplete ? collection.rows.map(row => ({...row, collection_title: collection.title})) : [];
   gallery.replaceChildren(); offset = 0;
   document.querySelector('#gallery-section').hidden = results.length === 0;
   if (results.length) showPosts();
-  if (collection?.slots.some(slot => slot.searchComplete)) makeDownload();
-  else download.hidden = true;
-  const table = document.createElement('table');
-  const header = table.createTHead().insertRow();
-  for (const label of ['Month', 'Collected', 'Saved to Sheets']) {
-    const th = document.createElement('th'); th.textContent = label; header.append(th);
+  if (collection?.searchComplete) makeDownload(); else download.hidden = true;
+  const summary = document.querySelector('#summary'); summary.replaceChildren();
+  if (collection) {
+    const text = document.createElement('p'); text.className = 'hint';
+    text.textContent = `${collection.month} · ${collection.rows.length} posts collected · ${collection.status === 'saved' ? 'Saved to Sheets' : 'Not yet saved to Sheets'}`;
+    summary.append(text);
   }
-  const body = table.createTBody();
-  for (const slot of collection?.slots.filter(slot => slot.month) || []) {
-    const row = body.insertRow();
-    for (const value of [slot.month, slot.rows.length, slot.status === 'saved' ? 'Yes' : 'No']) row.insertCell().textContent = value;
-  }
-  document.querySelector('#summary').replaceChildren(table);
 }
-async function checkpoint() {
-  await CollectionStore.save(collection);
-  render();
-}
-form.addEventListener('input', render);
-monthInputs.forEach((input, index) => input.addEventListener('change', async () => {
-  if (!collection || busy || replyRunning || !initialized) return;
-  if (draftRequiresNew()) { render(); return; }
-  const previous = collection.slots[index];
-  if (!canEditMonth(index)) { input.value = previous.month; render(); return; }
-  const month = input.value;
-  if (month === previous.month) return;
-  const proposed = collection.slots.map((slot, i) => i === index ? month : slot.month).filter(Boolean);
-  if (proposed.some((value, i) => value < '2006-03' || value > current || (i > 0 && value <= proposed[i - 1]))) {
-    input.value = previous.month;
-    status.classList.add('error');
-    status.textContent = 'Choose distinct months in chronological order, after any already collected month. Future months are unavailable.';
-    render();
-    return;
-  }
-  busy = true;
-  collection.slots[index] = {...previous, month, status: 'not_started', error: ''};
-  render();
-  try {
-    await checkpoint();
-    status.classList.remove('error');
-    status.textContent = month ? `Month slot ${index + 1} updated to ${month}. Click Search & save when ready; no API requests have been made.`
-      : `Month slot ${index + 1} cleared. You can select it later.`;
-    refreshResults();
-  } catch (error) {
-    collection.slots[index] = previous;
-    input.value = previous.month;
-    status.classList.add('error'); status.textContent = error.message;
-  } finally { busy = false; render(); }
-}));
+async function checkpoint() { await CollectionStore.save(collection); render(); }
 function prepareCollection() {
-  if (collection && !draftRequiresNew()) return true;
+  if (collection && !settingsChanged()) return true;
   if (!form.reportValidity()) return false;
-  const months = monthInputs.map(input => input.value);
-  const selected = months.filter(Boolean);
-  if (!titleInput.value.trim() || !queryInput.value.trim() || !selected.length ||
-      selected.some((month, i) => month < '2006-03' || month > current || (i > 0 && month <= selected[i - 1]))) {
-    status.textContent = 'Enter a collection title, search query, and one to four distinct months in chronological order.';
+  if (!titleInput.value.trim() || !queryInput.value.trim() || !monthInput.value || monthInput.value < '2006-03' || monthInput.value > current) {
+    status.textContent = 'Enter a title, a search query, and one month from March 2006 through the present.';
     return false;
   }
-  if (collection && (collection.slots.some(monthStarted) || collection.sheet.id) &&
-      !confirm('Apply these changes as a new collection? The current Google spreadsheet is kept. Local active results will be replaced, so download the CSV first if needed.')) return false;
-  collection = {version: 1, title: titleInput.value.trim(), query: queryInput.value.trim(), limit: Number(postLimit.value),
-    createdAt: new Date().toISOString(), sheet: {id: null, nextRow: 2, headerWritten: false},
-    slots: months.map(month => ({month, rows: [], status: 'not_started', searchComplete: false,
-      cursor: null, endTime: null, seenTokens: [], uploaded: 0, sheetStart: null, error: ''}))};
-  render();
-  return true;
+  if (hasData() && !confirm('Start a new single-month collection with these settings? Your existing Google spreadsheet is kept. Download the current CSV first if you need its local results.')) return false;
+  collection = {version: 2, title: titleInput.value.trim(), query: queryInput.value.trim(), month: monthInput.value,
+    limit: Number(postLimit.value), createdAt: new Date().toISOString(), rows: [], status: 'not_started', searchComplete: false,
+    cursor: null, endTime: null, seenTokens: [], uploaded: 0, sheetStart: null, error: '',
+    sheet: {id: null, nextRow: 2, headerWritten: false}};
+  render(); return true;
 }
+form.addEventListener('input', render);
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (busy || replyRunning || !initialized || !prepareCollection()) return;
   try {
-    await checkpoint();
-    refreshResults();
-    status.classList.remove('error');
-    status.textContent = `Collection “${collection.title}” started. Click Search & save on the first month. All months use one Posts tab.`;
-  } catch (error) { collection = null; status.textContent = error.message; render(); }
+    await checkpoint(); refreshResults(); status.classList.remove('error');
+    status.textContent = `Collection “${collection.title}” ready for ${collection.month}. Click Search & save when ready.`;
+  } catch (error) { status.textContent = error.message; status.classList.add('error'); }
 });
-async function searchMonth(slot) {
-  const posts = new Map(slot.rows.map(row => [row.id, row]));
+async function searchMonth() {
+  const posts = new Map(collection.rows.map(row => [row.id, row]));
   do {
-    const response = await fetch('/api/index', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({query: collection.query, start: slot.month, end: slot.month,
-        candidates: collection.limit, count: Math.max(10, Math.min(100, collection.limit - posts.size)),
-        next_token: slot.cursor, end_time: slot.endTime})});
+    const response = await fetch('/api/index', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:collection.query, start:collection.month, end:collection.month,
+        candidates:collection.limit, count:Math.max(10, Math.min(100, collection.limit - posts.size)),
+        next_token:collection.cursor, end_time:collection.endTime})});
     let page;
-    try { page = await response.json(); } catch { throw new Error('X search did not return results. Retry may use additional API allowance.'); }
-    if (!response.ok) throw new Error(page.error || 'Search request failed.');
-    for (const row of page.rows) if (posts.size < collection.limit && !posts.has(row.id)) posts.set(row.id, row);
+    try { page = await response.json(); } catch { throw new Error('X did not return a search page. Retry may use additional allowance.'); }
+    if (!response.ok) throw new Error(page.error || 'Search failed.');
     const cursor = page.next_token || null;
-    if (cursor && slot.seenTokens.includes(cursor)) throw new Error('X repeated a pagination token. Search stopped.');
-    slot.rows = [...posts.values()];
-    slot.cursor = cursor;
-    slot.endTime = page.end_time || slot.endTime;
-    if (cursor) slot.seenTokens.push(cursor);
-    slot.searchComplete = posts.size >= collection.limit || !cursor;
-    status.textContent = `${slot.month}: collected ${posts.size} posts in X’s relevance order.`;
+    if (!Array.isArray(page.rows) || (cursor && collection.seenTokens.includes(cursor))) throw new Error('Invalid or repeated X pagination response. Search paused.');
+    for (const row of page.rows) if (posts.size < collection.limit && !posts.has(row.id)) posts.set(row.id, row);
+    collection.rows = [...posts.values()]; collection.cursor = cursor; collection.endTime = page.end_time || collection.endTime;
+    if (cursor) collection.seenTokens.push(cursor);
+    collection.searchComplete = posts.size >= collection.limit || !cursor;
+    status.textContent = `Collected ${posts.size} posts for ${collection.month} in X’s relevance order.`;
     await checkpoint();
-    if (!slot.searchComplete) await sleep(1100);
-  } while (!slot.searchComplete);
+    if (!collection.searchComplete) await sleep(1100);
+  } while (!collection.searchComplete);
 }
-monthButtons.forEach((button, i) => button.addEventListener('click', async () => {
-  if (busy || replyRunning || button.disabled || !prepareCollection()) return;
-  const slot = collection.slots[i];
-  busy = true;
-  status.classList.remove('error');
-  sheetsStatus.classList.remove('error');
-  render();
+searchButton.addEventListener('click', async () => {
+  if (busy || replyRunning || searchButton.disabled || !prepareCollection()) return;
+  busy = true; render(); status.classList.remove('error');
   try {
-    // Request Google authorization immediately from the click, before any awaits or X usage.
     const authorization = TwittSheets.authorize();
-    // Open Google's popup from the original click while local state is saved in parallel.
     const [token] = await Promise.all([authorization, checkpoint()]);
-    if (!slot.searchComplete) {
-      slot.status = 'searching'; slot.error = '';
-      await checkpoint();
-      await searchMonth(slot);
-      slot.status = 'collected';
-      await checkpoint();
+    if (!collection.searchComplete) {
+      collection.status = 'searching'; collection.error = ''; await checkpoint();
+      await searchMonth(); collection.status = 'collected'; await checkpoint();
     }
-    refreshResults();
-    slot.status = 'saving';
-    await checkpoint();
-    await TwittSheets.writeMonth(collection, slot, columns, token, checkpoint,
-      message => { sheetsStatus.textContent = message; });
-    slot.status = 'saved'; slot.error = '';
-    await checkpoint();
-    refreshResults();
-    sheetsStatus.textContent = `Saved ${slot.rows.length} posts for ${slot.month} to the collection’s Posts tab.`;
-    const allSaved = collection.slots.filter(item => item.month).every(item => item.status === 'saved');
-    status.textContent = allSaved ? `Collection complete: ${results.length} posts saved to one spreadsheet. No custom ranking has been applied.`
-      : `${slot.month} saved successfully. Continue with the next month.`;
+    refreshResults(); collection.status = 'saving'; await checkpoint();
+    await TwittSheets.writeMonth(collection, collection, columns, token, checkpoint, message => { sheetsStatus.textContent = message; });
+    collection.status = 'saved'; collection.error = ''; await checkpoint(); refreshResults();
+    status.textContent = `Saved ${collection.rows.length} posts for ${collection.month}. No custom ranking has been applied.`;
+    sheetsStatus.textContent = 'Search saved successfully to the Posts tab.';
   } catch (error) {
-    slot.status = 'error';
-    slot.error = error.name === 'TimeoutError' ? 'Request timed out. Retry to resume.' : error.message;
-    status.classList.add('error');
-    status.textContent = slot.error + (slot.searchComplete ? ' Collected posts are retained; retry saving without another X search.' : ' Retry resumes from the last saved search page.');
+    collection.status = 'error'; collection.error = error.message || 'Search or upload failed.';
+    status.classList.add('error'); status.textContent = collection.error + (collection.searchComplete ? ' Retry saving without another X search.' : ' Retry resumes from the last saved page.');
     try { await checkpoint(); } catch (storageError) { status.textContent += ' ' + storageError.message; }
     refreshResults();
   } finally { busy = false; render(); }
-}));
+});
 newButton.addEventListener('click', async () => {
-  if (busy || replyRunning || !confirm('Start a new collection? This clears this browser’s active collection and collected posts. Your Google spreadsheet will not be deleted.')) return;
+  if (busy || replyRunning || !confirm('Start a new collection? This clears the active search’s local results. Google spreadsheets and reply jobs are not deleted.')) return;
   try {
     await CollectionStore.clear(); collection = null;
     if (csvUrl) URL.revokeObjectURL(csvUrl);
-    sheetsStatus.textContent = '';
-    status.classList.remove('error');
-    status.textContent = 'Enter the new title, query, and months, then start the collection.';
+    sheetsStatus.textContent = ''; status.classList.remove('error');
+    status.textContent = 'Choose the title, query, and month for your new search.';
     render(); refreshResults();
   } catch (error) { status.textContent = error.message; }
 });
+function showPrevious(previous) {
+  if (!previous) return;
+  document.querySelector('#previous-collection').hidden = false;
+  const rows = previous.slots.filter(slot => slot.searchComplete).flatMap(slot => slot.rows.map(row => ({...row, collection_title: previous.title})));
+  const fields = columns.filter(field => !['attachments','media'].includes(field));
+  const lines = [fields.map(csvCell).join(','), ...rows.map(row => fields.map(field => csvCell(row[field])).join(','))];
+  if (previousUrl) URL.revokeObjectURL(previousUrl);
+  previousUrl = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n') + '\r\n'], {type:'text/csv;charset=utf-8'}));
+  const link = document.querySelector('#download-previous'); link.href = previousUrl; link.download = 'previous-collection-posts.csv';
+  if (previousJsonUrl) URL.revokeObjectURL(previousJsonUrl);
+  previousJsonUrl = URL.createObjectURL(new Blob([JSON.stringify(previous)], {type:'application/json'}));
+  const progress = document.querySelector('#download-previous-progress'); progress.href = previousJsonUrl; progress.download = 'previous-collection-progress.json';
+  if (previous.sheet?.id) {
+    const sheet = document.querySelector('#open-previous'); sheet.href = 'https://docs.google.com/spreadsheets/d/' + previous.sheet.id + '/edit'; sheet.hidden = false;
+  }
+}
 (async () => {
   try {
-    const [config, saved] = await Promise.all([fetch('/api/index', {signal: AbortSignal.timeout(15000)}).then(response => {
-      if (!response.ok) throw new Error('Cannot read server configuration. Refresh to retry.');
-      return response.json();
-    }), CollectionStore.load()]);
+    const [config, saved, archived] = await Promise.all([
+      fetch('/api/index', {signal:AbortSignal.timeout(15000)}).then(response => {
+        if (!response.ok) throw new Error('Cannot load server configuration. Refresh to retry.'); return response.json();
+      }), CollectionStore.load(), CollectionStore.loadPrevious()]);
     TwittSheets.setClientId(config.google_client_id);
     document.querySelector('#connection').textContent = config.configured ? '● API token configured' : '○ API token needed';
-    if (saved) {
-      if (saved.version !== 1) throw new Error('This saved collection uses an unsupported format. Export or clear its browser data before continuing.');
-      collection = saved;
-      titleInput.value = saved.title; queryInput.value = saved.query; postLimit.value = String(saved.limit);
-      saved.slots.forEach((slot, i) => {
-        monthInputs[i].value = slot.month;
-        if (slot.status === 'searching' || slot.status === 'saving') {
-          slot.status = 'error'; slot.error = 'Interrupted. Retry to resume.';
-        }
-      });
-      refreshResults();
-      status.textContent = `Restored collection “${saved.title}” from this browser. Green months are already saved; continue with the next incomplete month.`;
-    } else if (!config.configured) status.textContent = 'Configure X_BEARER_TOKEN in Vercel and redeploy before searching.';
+    showPrevious(archived);
+    if (saved?.version === 1) {
+      const selected = saved.slots.filter(slot => slot.month);
+      if (selected.length === 1) {
+        const {slots, ...settings} = saved;
+        collection = {...settings, ...selected[0], version:2}; await CollectionStore.save(collection);
+      } else {
+        await CollectionStore.savePrevious(saved); showPrevious(saved);
+        titleInput.value = saved.title; queryInput.value = saved.query; postLimit.value = String(saved.limit);
+        monthInput.value = selected[0]?.month || current;
+        status.textContent = 'Your previous multi-month collection is preserved under Previous multi-month collection. Start a new one-month search when ready.';
+      }
+    } else if (saved?.version === 2) collection = saved;
+    else if (saved) throw new Error('Unsupported saved search format. Existing data was not overwritten.');
+    if (collection) {
+      titleInput.value = collection.title; queryInput.value = collection.query; postLimit.value = String(collection.limit); monthInput.value = collection.month;
+      if (['searching','saving'].includes(collection.status)) { collection.status = 'error'; collection.error = 'Interrupted. Retry to resume.'; }
+      refreshResults(); status.textContent = `Restored “${collection.title}” for ${collection.month}.`;
+    } else if (!saved && !config.configured) status.textContent = 'Configure X_BEARER_TOKEN in Vercel and redeploy before searching.';
     initialized = true; render();
   } catch (error) { status.textContent = error.message; status.classList.add('error'); }
 })();
-
 document.addEventListener('twitt:reply-running', event => { replyRunning = event.detail; render(); });

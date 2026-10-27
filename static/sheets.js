@@ -1,6 +1,6 @@
 // No Google tokens are persisted. Each month writes fixed ranges in one shared file.
 (() => {
-  const excluded = new Set(['geo', 'impressions', 'raw_json', 'engagement_score',
+  const excluded = new Set(['geo', 'impressions', 'raw_json', 'engagement_score', 'engagement',
     'language', 'author_verified', 'author_name', 'author_followers', 'bookmarks', 'attachments', 'media']);
   let clientId = '';
   function authorize() {
@@ -42,7 +42,7 @@
     if (!sheet.id) {
       const created = await request('', token, 'POST', {properties: {title: collection.title},
         sheets: [{properties: {sheetId: 0, title: 'Posts', gridProperties: {
-          rowCount: 2001, columnCount: selected.length, frozenRowCount: 1}}}]});
+          rowCount: 501, columnCount: selected.length, frozenRowCount: 1}}}]});
       if (!/^[A-Za-z0-9_-]+$/.test(created.spreadsheetId || '')) throw new Error('Google returned an invalid spreadsheet ID.');
       sheet.id = created.spreadsheetId;
       await checkpoint();
