@@ -88,7 +88,7 @@
       sheet.id = created.spreadsheetId;
       await checkpoint();
     } else {
-      await request('/' + sheet.id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties, fields:'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}}]});
+      await request('/' + sheet.id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties, fields:'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}}, {updateCells:{range:{sheetId:0}, fields:'userEnteredValue'}}]});
     }
     for (let offset=0; offset<values.length;) {
       const batch=[]; let bytes=0;

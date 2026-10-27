@@ -112,12 +112,12 @@ with sync_playwright() as p:
     assert len(first['threads'][0]['replies'])==500
     assert not first['threads'][0]['complete']
     partial=combined(page)
-    assert len(partial)==502
+    assert len(partial)==500
     assert partial[0]['engagement']=='42.5'
     assert partial[0]['text']=='Selected root, with comma\nand newline'
     assert 'reply_collection_status' not in partial[0]
     assert 'paused_budget' in page.locator('#reply-summary').inner_text()
-    assert partial[-1]['reply_id']==''
+    assert all(row['reply_id'] for row in partial)
     before=len(calls)
     page.reload()
     page.wait_for_function('() => !document.querySelector("#run-replies").disabled')
@@ -149,13 +149,12 @@ with sync_playwright() as p:
     assert calls[4]['data']['next_token']=='B'
     assert calls[4]['data']['conversation_ids']==['100','300']
     result=combined(other)
-    assert len(result)==504
+    assert len(result)==503
     root=[item for item in result if item['id']=='100']
     child=[item for item in result if item['id']=='200']
     empty=[item for item in result if item['id']=='300']
-    assert len(root)==502 and len(child)==1 and len(empty)==1
+    assert len(root)==502 and len(child)==1 and len(empty)==0
     assert len({item['reply_id'] for item in root+child})==503
-    assert empty[0]['reply_id']==''
     assert 'complete_no_replies' in other.locator('#reply-summary').inner_text()
     assert {item['engagement'] for item in root}=={'42.5'}
     assert child[0]['reply_parent_post_id']=='200'
@@ -187,7 +186,7 @@ with sync_playwright() as p:
     other.click('#run-replies')
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Reply collection complete")')
     final=combined(other)
-    assert len(final)==504
+    assert len(final)==503
     assert len({item['reply_id'] for item in final if item['reply_id']})==503
     # Manual pause stops after saving the in-flight page; its next cursor survives.
     other.set_input_files('#reply-checkpoint-file',{'name':'earlier.json','mimeType':'application/json','buffer':json.dumps(first).encode()})

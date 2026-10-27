@@ -7,7 +7,7 @@ with sync_playwright() as p:
     page=browser.new_page()
     page.add_init_script("window.google={accounts:{oauth2:{initTokenClient: options => ({requestAccessToken: () => options.callback({access_token:'test-only-token'})})}}};")
     page.route('https://accounts.google.com/gsi/client',lambda r:r.fulfill(content_type='application/javascript',body=''))
-    xcalls=[]; creates=[]; writes=[]; fail={'next':True}
+    xcalls=[]; creates=[]; writes=[]; updates=[]; fail={'next':True}
     def api(route):
         if route.request.method=='POST':
             xcalls.append(route.request.post_data_json)
@@ -24,6 +24,7 @@ with sync_playwright() as p:
                 fail['next']=False;route.fulfill(status=503,json={});return
             route.fulfill(json={})
         else:
+            updates.append(request.post_data_json)
             route.fulfill(json={})
     page.route('**/api/index',api)
     page.route('https://sheets.googleapis.com/**',sheets)
@@ -32,6 +33,14 @@ with sync_playwright() as p:
     page.locator('#selected-posts-file').set_input_files({'name':'Research April.csv','mimeType':'text/csv','buffer':b'id,conversation_id,text,engagement,month,hashtags\n100,100,=literal,42,2024-04,#research\n'})
     page.locator('#prepare-replies').click()
     page.wait_for_function("() => !document.getElementById('reply-controls').hidden")
+    # Saved results can be re-exported without any new X calls.
+    page.evaluate("""async () => {
+      const s=await CollectionStore.loadReplies();
+      s.threads[0].replies=[{id:'900',conversation_id:'100',parent_post_id:'100',text:'=reply'}];
+      await CollectionStore.saveReplies(s);
+    }""")
+    page.reload()
+    page.wait_for_function("() => !document.getElementById('download-combined').closest('#reply-controls').hidden")
     with page.expect_download() as result:
         page.locator('#download-combined').click()
     assert result.value.suggested_filename=='Replies_Research April.csv'
@@ -56,6 +65,7 @@ with sync_playwright() as p:
     page.locator('#save-replies-drive').click()
     page.wait_for_function("() => !document.getElementById('save-replies-drive').disabled")
     assert len(creates)==1 and xcalls==[]
+    assert any('updateCells' in operation for update in updates for operation in update.get('requests',[]))
     # Alternate uploaded text heading is placed beside reply text, with values aligned.
     page.on('dialog',lambda dialog:dialog.accept())
     page.locator('#selected-posts-file').set_input_files({'name':'Tweets.csv','mimeType':'text/csv','buffer':b'id,conversation_id,tweet,engagement\n100,100,original tweet,42\n'})
@@ -63,9 +73,11 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('Imported')")
     with page.expect_download() as alternate:
         page.locator('#download-combined').click()
-    with open(alternate.value.path(),encoding='utf-8-sig',newline='') as f: alternate_rows=list(csv.DictReader(f))
-    headings=list(alternate_rows[0])
+    with open(alternate.value.path(),encoding='utf-8-sig',newline='') as f: alternate_rows=list(csv.reader(f))
+    headings=alternate_rows[0]
+    assert len(alternate_rows)==1
     assert headings[headings.index('tweet')+1]=='reply_text'
-    assert alternate_rows[0]['tweet']=='original tweet' and alternate_rows[0]['engagement']=='42'
+    saved=page.evaluate('() => CollectionStore.loadReplies()')
+    assert saved['posts'][0]['values'][2:] == ['original tweet','42']
     browser.close()
     print('PASS: original filename survives reload; CSV and Drive schemas match; retry updates same file; literal values preserved; no X calls.')

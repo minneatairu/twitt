@@ -21,7 +21,7 @@
   let previewId = null;
   const replyFields = ['id','post_type','url','text','created_at','author_id','username','conversation_id','parent_post_id',
     'likes','reposts','replies','quotes','images'];
-  const extraFields = [...replyFields, 'collection_status','collected_count','window_start','window_end'];
+  const extraFields = [...replyFields, 'conversation_selected_post_ids', 'collection_status','collected_count','window_start','window_end'];
   const exportFields = extraFields.filter(field => !['likes','reposts','replies','quotes','images','collection_status','collected_count','window_start','window_end'].includes(field));
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const isId = value => typeof value === 'string' && /^[1-9][0-9]{0,24}$/.test(value);
@@ -107,12 +107,19 @@
     }
     const visibleOrder = order.filter(index => !['month','hashtag','hashtags'].includes(headers[index].trim().toLowerCase()));
     const rows = [visibleOrder.map(index => headers[index])];
-    for (const post of state.posts) {
-      const thread = state.threads.find(item => item.id === post.conversationId);
-      const replies = repliesFor(post, thread);
-      for (const reply of replies.length ? replies : [null]) {
-        const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
-        const values = [...post.values, ...exportFields.map(field => String(metadata[field] ?? ''))];
+    const selectedById = new Map(state.posts.map(post => [post.id, post]));
+    const seen = new Set();
+    for (const thread of state.threads) {
+      const selectedIds = state.posts.filter(post => post.conversationId === thread.id).map(post => post.id);
+      for (const reply of thread.replies) {
+        if (seen.has(reply.id)) continue;
+        seen.add(reply.id);
+        // Only show uploaded post context when X identifies that exact post as
+        // this reply's parent. Conversation membership alone is not parentage.
+        const parent = selectedById.get(reply.parent_post_id);
+        const context = parent?.conversationId === thread.id ? parent.values : state.headers.map(() => '');
+        const metadata = {...reply, conversation_selected_post_ids:JSON.stringify(selectedIds)};
+        const values = [...context, ...exportFields.map(field => String(metadata[field] ?? ''))];
         rows.push(visibleOrder.map(index => values[index]));
       }
     }

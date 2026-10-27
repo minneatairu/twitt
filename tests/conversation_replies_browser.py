@@ -13,7 +13,8 @@ with sync_playwright() as p:
         calls.append(route.request.post_data_json)
         route.fulfill(json={'rows':[
             {'id':'900','conversation_id':'100','parent_post_id':'999'},
-            {'id':'901','conversation_id':'100','parent_post_id':''}],
+            {'id':'901','conversation_id':'100','parent_post_id':''},
+            {'id':'902','conversation_id':'100','parent_post_id':'100'}],
             'next_token':None, 'incomplete':False})
     page.route('**/api/index',api)
     page.goto(os.environ.get('APP_BASE_URL','http://127.0.0.1:8012'))
@@ -24,18 +25,21 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('collection complete')")
     saved=page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['scope']=='conversation' and len(calls)==1
-    assert len(saved['threads'][0]['replies'])==2 and calls[0]['scope']=='conversation'
+    assert len(saved['threads'][0]['replies'])==3 and calls[0]['scope']=='conversation'
     with page.expect_download() as download:
         page.locator('#download-combined').click()
     with open(download.value.path(),encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
-    assert len(rows)==4
+    assert len(rows)==3
+    assert len({row['reply_id'] for row in rows})==3
+    assert [row['id'] for row in rows]==['','','100']
+    assert all(row['reply_conversation_selected_post_ids']=='["100","200"]' for row in rows)
     excluded = {'reply_likes','reply_reposts','reply_replies','reply_quotes','reply_images','reply_collection_status','reply_collected_count','reply_window_start','reply_window_end'}
     assert not excluded.intersection(rows[0])
     assert {'reply_id','reply_post_type','reply_parent_post_id','reply_conversation_id'}.issubset(rows[0])
-    assert [row['reply_parent_post_id'] for row in rows]==['999','','999','']
+    assert [row['reply_parent_post_id'] for row in rows]==['999','','100']
     page.reload()
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
-    assert '2 unique replies' in page.locator('#reply-plan').inner_text()
+    assert '3 unique replies' in page.locator('#reply-plan').inner_text()
     # Simulate a previously completed direct-only job, with saved matches and an old cursor query.
     page.evaluate("""async () => {
       const s = await CollectionStore.loadReplies();
