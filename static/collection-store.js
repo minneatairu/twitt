@@ -21,6 +21,7 @@
     clear: () => transaction('readwrite', store => store.delete('active')),
     loadPrevious: () => transaction('readonly', store => store.get('previous-multimonth')),
     savePrevious: collection => transaction('readwrite', store => store.put(collection, 'previous-multimonth')),
+    clearReplies: () => transaction('readwrite', store => store.delete('replies-active')),
     loadReplies: () => transaction('readonly', store => store.get('replies-active')),
     saveReplies: state => transaction('readwrite', store => store.put(state, 'replies-active'))
   };

@@ -31,6 +31,7 @@
 <div class="reply-actions"><button id="run-replies" type="button">Start / resume replies</button><button id="pause-replies" class="secondary" type="button" disabled>Pause after current request</button></div>
 <button id="restart-reply-cursor" class="secondary" type="button" hidden>Restart rejected batch cursor</button>
 <div class="reply-actions"><button id="download-combined" class="secondary" type="button">Download combined CSV</button><button id="download-reply-checkpoint" class="secondary" type="button">Download checkpoint</button></div></div>
+<button id="clear-replies" class="secondary" type="button">Clear replies job / start fresh</button><p class="hint">Remove the imported file and saved reply progress from this browser. Download a checkpoint first if you want to keep them. Your original files and Google spreadsheets are unchanged.</p>
 <label for="reply-checkpoint-file">Restore a replies checkpoint</label><input id="reply-checkpoint-file" type="file" accept=".json,application/json">
 <p id="reply-status" role="status" aria-live="polite">No selected-posts file imported.</p><p class="hint">Keep this tab open to keep running. Progress saves in this browser after each page. Download a checkpoint before switching devices or clearing browser data. Reloading/restoring never starts paid requests automatically. Credits and usage caps require more allowance; invalid cursors pause without silently restarting.</p>
 <div id="reply-summary" class="table-scroll"></div><div id="reply-preview"></div>

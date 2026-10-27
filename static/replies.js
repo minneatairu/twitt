@@ -191,6 +191,7 @@
     q('reply-controls').hidden = !state;
     run.disabled = !ready || running || initialBusy || !state || state.threads.every(thread => thread.complete);
     pause.disabled = !running;
+    q('clear-replies').disabled = running || !ready;
     [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume')].forEach(input => { input.disabled = running || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || !ready;
     if (state) q('reply-plan').textContent = `${state.posts.length} selected posts · ${state.threads.length} conversations · ${state.batches.length} search batch(es), ${state.batches.filter(item => !item.complete).length} unfinished. Each unfinished batch needs at least one call; extra pages and failed attempts can add calls. Each call requests up to ${state.pageSize} results across the whole batch, not per post.`;
@@ -301,6 +302,23 @@
       });
     } catch (error) { showError(error); }
     finally { checkpointFile.value = ''; }
+  });
+  q('clear-replies').addEventListener('click', async () => {
+    if (running || !ready || !confirm('Clear the saved replies job and its collected replies from this browser? Download a checkpoint first if you need to keep progress. Original files and Google spreadsheets are unchanged.')) return;
+    try {
+      await exclusive(async () => {
+        await CollectionStore.clearReplies();
+        state = null; previewId = null; stop = false;
+        source.value = ''; checkpointFile.value = '';
+        start.value = '2006-03-21'; end.value = today;
+        q('reply-page-size').value = '500'; q('reply-budget').value = '1';
+        q('reply-auto-resume').checked = true;
+        q('reply-plan').textContent = ''; q('reply-preview').replaceChildren();
+        status.classList.remove('error');
+        status.textContent = 'Replies job cleared. Import a CSV to start a new job. No API calls have been made.';
+        render();
+      });
+    } catch (error) { showError(error); }
   });
   pause.addEventListener('click', () => { stop = true; pause.disabled = true; status.textContent = 'Pausing after the current response is saved…'; });
   async function collect() {
