@@ -31,12 +31,12 @@ with sync_playwright() as p:
         page.locator('#download-combined').click()
     with open(download.value.path(),encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
     assert len(rows)==3
-    assert len({row['reply_id'] for row in rows})==3
+    assert len({row['id'] for row in saved['threads'][0]['replies']})==3
     assert [row['id'] for row in rows]==['100','100','100']
     assert all(row['text']=='Original tweet' for row in rows)
-    excluded = {'reply_likes','reply_reposts','reply_replies','reply_quotes','reply_images','reply_collection_status','reply_collected_count','reply_window_start','reply_window_end','reply_created_at','reply_author_id','reply_username','reply_conversation_id','reply_parent_post_id','reply_conversation_selected_post_ids','reply_post_type'}
+    excluded = {'reply_likes','reply_reposts','reply_replies','reply_quotes','reply_images','reply_collection_status','reply_collected_count','reply_window_start','reply_window_end','reply_created_at','reply_author_id','reply_username','reply_conversation_id','reply_parent_post_id','reply_conversation_selected_post_ids','reply_post_type','reply_id'}
     assert not excluded.intersection(rows[0])
-    assert {'reply_id','reply_url','reply_text'}.issubset(rows[0])
+    assert {'reply_url','reply_text'}.issubset(rows[0])
     assert [row['parent_post_id'] for row in saved['threads'][0]['replies']]==['999','','100']
     reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")

@@ -47,7 +47,7 @@ with sync_playwright() as p:
     assert result.value.suggested_filename=='Replies_Research April.csv'
     with open(result.value.path(),encoding='utf-8-sig',newline='') as f: csvrows=list(csv.reader(f))
     assert csvrows[0][csvrows[0].index('text')+1]=='reply_text'
-    assert not any(name in csvrows[0] for name in ['reply_post_type','reply_created_at','reply_author_id','reply_username','reply_conversation_id','reply_parent_post_id','reply_conversation_selected_post_ids','month','hashtags','hashtag','reply_images','reply_likes','reply_window_start','reply_window_end','reply_collected_count','reply_collection_status'])
+    assert not any(name in csvrows[0] for name in ['reply_id','reply_post_type','reply_created_at','reply_author_id','reply_username','reply_conversation_id','reply_parent_post_id','reply_conversation_selected_post_ids','month','hashtags','hashtag','reply_images','reply_likes','reply_window_start','reply_window_end','reply_collected_count','reply_collection_status'])
     page.locator('#save-replies-drive').click()
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('HTTP 503')")
     assert len(creates)==1 and creates[0]['properties']['title']=='Replies_Research April'
