@@ -33,7 +33,7 @@
     const sheet = collection.sheet;
     const requested = columns.filter(column => !excluded.has(column));
     // Keep active spreadsheets on their original schema so later months cannot shift data.
-    const legacy = columns.filter(column => column !== 'engagement' &&
+    const legacy = columns.filter(column => column !== 'engagement' && column !== 'post_type' &&
       (!excluded.has(column) || ['attachments', 'media'].includes(column)));
     const selected = sheet.columns || (sheet.id && sheet.headerWritten ? legacy : requested);
     sheet.columns = selected;

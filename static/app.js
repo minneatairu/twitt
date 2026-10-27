@@ -20,7 +20,7 @@ async function showPosts() {
       author.textContent = `${post.username ? '@' + post.username : 'Post'} ↗`;
       card.append(author);
       const meta = document.createElement('p'); meta.className = 'hint';
-      meta.textContent = `${post.created_at} · Likes: ${post.likes ?? 'unavailable'} · Reposts: ${post.reposts ?? 'unavailable'} · Replies: ${post.replies ?? 'unavailable'} · Quotes: ${post.quotes ?? 'unavailable'}`;
+      meta.textContent = `${post.created_at} · Type: ${post.post_type || 'unavailable'} · Likes: ${post.likes ?? 'unavailable'} · Reposts: ${post.reposts ?? 'unavailable'} · Replies: ${post.replies ?? 'unavailable'} · Quotes: ${post.quotes ?? 'unavailable'}`;
       const text = document.createElement('p'); text.className = 'post-text'; text.textContent = post.text;
       card.append(meta, text);
       const media = JSON.parse(post.media);
@@ -47,7 +47,7 @@ async function showPosts() {
   } finally { more.disabled = false; }
 }
 more.addEventListener('click', () => showPosts().catch(error => { status.textContent = error.message; }));
-const columns = ['collection_title','month','id','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','bookmarks','impressions','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
+const columns = ['collection_title','month','id','post_type','url','text','created_at','author_id','username','author_name','author_verified','author_followers','language','likes','reposts','replies','quotes','bookmarks','impressions','hashtags','mentions','urls','conversation_id','in_reply_to_user_id','referenced_posts','attachments','images','media','geo','raw_json'];
 function csvCell(value) {
   let text = String(value ?? '');
   if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;

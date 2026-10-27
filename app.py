@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).parent
 API = 'https://api.x.com/2/tweets/search/all'
-FIELDS = ['month', 'id', 'url', 'text', 'created_at', 'author_id', 'username',
+FIELDS = ['month', 'id', 'post_type', 'url', 'text', 'created_at', 'author_id', 'username',
           'author_name', 'author_verified', 'author_followers', 'language',
           'likes', 'reposts', 'replies', 'quotes', 'bookmarks', 'impressions',
           'hashtags', 'mentions', 'urls', 'conversation_id',
@@ -126,7 +126,9 @@ def to_row(post, users, month, media=None):
     images = [item.get('url') if item.get('type') == 'photo' else item.get('preview_image_url') for item in attached]
     row_images = [url for url in images if url]
     row = dict.fromkeys(FIELDS, '')
-    row.update(month=month, id=post['id'], url='https://x.com/i/web/status/' + post['id'],
+    reference_types = {ref.get('type') for ref in post.get('referenced_tweets', [])}
+    post_type = '+'.join(label for kind, label in [('retweeted', 'repost'), ('replied_to', 'reply'), ('quoted', 'quote')] if kind in reference_types) or 'original'
+    row.update(post_type=post_type, month=month, id=post['id'], url='https://x.com/i/web/status/' + post['id'],
                text=post.get('text', ''), created_at=post.get('created_at', ''),
                author_id=post.get('author_id', ''), username=author.get('username', ''),
                author_name=author.get('name', ''), author_verified=author.get('verified', ''),

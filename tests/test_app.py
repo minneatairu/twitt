@@ -13,6 +13,13 @@ import app
 
 
 class CollectionTests(unittest.TestCase):
+    def test_post_type_uses_all_reference_types(self):
+        for references, expected in [([], 'original'), (['retweeted'], 'repost'),
+                                     (['quoted'], 'quote'), (['replied_to'], 'reply'),
+                                     (['quoted', 'replied_to'], 'reply+quote')]:
+            post = {'id': '1', 'referenced_tweets': [{'type': kind, 'id': '2'} for kind in references]}
+            self.assertEqual(app.to_row(post, {}, '2024-01')['post_type'], expected)
+
     def test_calendar_boundaries_and_leap_year(self):
         months = app.month_bounds('2024-02', '2024-03')
         self.assertEqual(months[0], ('2024-02', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z'))

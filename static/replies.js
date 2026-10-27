@@ -18,7 +18,7 @@
   let stop = false;
   let initialBusy = false;
   let previewId = null;
-  const replyFields = ['id','url','text','created_at','author_id','username','conversation_id','parent_post_id',
+  const replyFields = ['id','post_type','url','text','created_at','author_id','username','conversation_id','parent_post_id',
     'likes','reposts','replies','quotes','images'];
   const extraFields = [...replyFields, 'collection_status','collected_count','window_start','window_end'];
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
