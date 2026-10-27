@@ -244,11 +244,24 @@ def search_page(data, fetch=None):
             'next_token': payload.get('meta', {}).get('next_token'), 'end_time': end}
 
 
+def reply_query(conversations):
+    if not isinstance(conversations, list) or not 1 <= len(conversations) <= 500 or any(
+            not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', value) for value in conversations):
+        raise ValueError('Conversation IDs must be digit strings stored as text.')
+    if len(set(conversations)) != len(conversations):
+        raise ValueError('A search batch cannot contain duplicate conversation IDs.')
+    terms = ' OR '.join('conversation_id:' + value for value in conversations)
+    query = (terms if len(conversations) == 1 else '(' + terms + ')') + ' is:reply lang:en'
+    if len(query) > 1024:
+        raise ValueError('Reply batch exceeds X’s 1024-character query limit. Use a smaller batch.')
+    return query
+
+
 def replies_page(data, fetch=None):
-    conversation = data.get('conversation_id')
-    if not isinstance(conversation, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', conversation):
-        raise ValueError('A conversation ID must contain digits only and be stored as text.')
-    count = data.get('count', 100)
+    conversations = data.get('conversation_ids', [data.get('conversation_id')])
+    query = reply_query(conversations)
+    conversation_set = set(conversations)
+    count = data.get('count', 500)
     if type(count) is not int or count not in (10, 100, 500):
         raise ValueError('Choose a reply page size of 10, 100, or 500.')
     token = data.get('next_token')
@@ -261,7 +274,7 @@ def replies_page(data, fetch=None):
             raise ValueError()
     except (KeyError, ValueError, TypeError, AttributeError):
         raise ValueError('Choose a fixed UTC reply date range from 2006 through the present.') from None
-    params = {'query': f'conversation_id:{conversation} is:reply lang:en',
+    params = {'query': query,
               'start_time': data['start_time'], 'end_time': data['end_time'], 'max_results': count,
               'sort_order': 'recency', 'expansions': 'author_id,attachments.media_keys',
               'tweet.fields': 'created_at,author_id,lang,public_metrics,entities,conversation_id,in_reply_to_user_id,referenced_tweets,attachments',
@@ -275,7 +288,7 @@ def replies_page(data, fetch=None):
     media = {item['media_key']: item for item in payload.get('includes', {}).get('media', [])}
     rows = []
     for post in payload.get('data', []):
-        if post.get('lang') != 'en' or post.get('conversation_id') != conversation:
+        if post.get('lang') != 'en' or post.get('conversation_id') not in conversation_set:
             continue
         parent = next((ref.get('id') for ref in post.get('referenced_tweets', []) if ref.get('type') == 'replied_to'), None)
         if not isinstance(parent, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', parent):

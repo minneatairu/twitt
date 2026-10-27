@@ -41,6 +41,24 @@ class ReplySearchTests(unittest.TestCase):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 app.replies_page(self.data(**values), fetch=lambda _: self.fail('Invalid request reached X'))
 
+    def test_multiple_conversations_share_one_request(self):
+        payload = {'data': [
+            {'id': '501', 'lang': 'en', 'conversation_id': '100', 'referenced_tweets': [{'type': 'replied_to', 'id': '100'}]},
+            {'id': '502', 'lang': 'en', 'conversation_id': '300', 'referenced_tweets': [{'type': 'replied_to', 'id': '300'}]},
+            {'id': '503', 'lang': 'en', 'conversation_id': '999', 'referenced_tweets': [{'type': 'replied_to', 'id': '999'}]}],
+            'meta': {'result_count': 3}}
+        with patch('app.request_page', return_value=payload) as fetch:
+            result = app.replies_page(self.data(conversation_ids=['100', '300'], count=500))
+        fetch.assert_called_once()
+        self.assertEqual(fetch.call_args.args[0]['query'], '(conversation_id:100 OR conversation_id:300) is:reply lang:en')
+        self.assertEqual(fetch.call_args.args[0]['max_results'], 500)
+        self.assertEqual([row['conversation_id'] for row in result['rows']], ['100', '300'])
+
+    def test_batch_rejects_duplicates_and_overlong_queries(self):
+        for ids in [[], ['100', '100'], ['100', '300 OR is:retweet'], [str(1000000000000000000 + i) for i in range(40)]]:
+            with self.subTest(ids=ids), self.assertRaises(ValueError):
+                app.replies_page(self.data(conversation_ids=ids), fetch=lambda _: self.fail('Invalid batch reached X'))
+
     def test_partial_response_is_not_successful(self):
         with self.assertRaisesRegex(ValueError, 'cursor was not advanced'):
             app.replies_page(self.data(), fetch=lambda _: {'data': [], 'errors': [{'title': 'Unavailable'}]})

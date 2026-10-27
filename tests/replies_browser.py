@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox'])
     calls, errors = [], []
-    flags = {'rate_done': False, 'usage_done': False}
+    flags = {'rate_done': False, 'usage_done': False, 'small_batch': False}
     selected = io.StringIO(newline='')
     writer = csv.writer(selected)
     writer.writerow(['id','conversation_id','text','engagement','created_at'])
@@ -36,9 +36,15 @@ with sync_playwright() as p:
         if fixed['start_time'] is None:
             fixed.update(start_time=data['start_time'],end_time=data['end_time'])
         assert data['start_time']==fixed['start_time'] and data['end_time']==fixed['end_time']
-        if data['conversation_id']=='300':
+        ids=data.get('conversation_ids') or [data.get('conversation_id')]
+        if ids==['300']:
             return route.fulfill(json={'rows':[],'next_token':None,'scanned_count':0})
-        assert data['conversation_id']=='100', 'Shared conversations must be fetched once'
+        assert ids in (['100','300'],['100']), 'Shared and separate conversations should be batched'
+        if flags['small_batch']:
+            rows=[row(5000+i,'100' if i<50 else '200' if i<75 else '300') for i in range(100)]
+            for item in rows:
+                if item['parent_post_id']=='300': item['conversation_id']='300'
+            return route.fulfill(json={'rows':rows,'next_token':None,'scanned_count':100})
         cursor=data['next_token']
         if cursor=='invalid':
             return route.fulfill(status=400,json={'code':'cursor_invalid','error':'X rejected the saved cursor.'})
@@ -90,7 +96,9 @@ with sync_playwright() as p:
     page.click('#prepare-replies')
     page.locator('#reply-controls').wait_for(state='visible')
     assert len(calls)==0
-    assert '3 selected posts in 2 conversations' in page.locator('#reply-status').inner_text()
+    assert '3 selected posts in 2 conversations, grouped into 1 search batch' in page.locator('#reply-status').inner_text()
+    assert page.locator('#reply-page-size').input_value()=='500'
+    assert '1 search batch' in page.locator('#reply-plan').inner_text()
     page.select_option('#reply-budget','1')
     page.click('#run-replies')
     page.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Paused after 1 API calls")')
@@ -104,7 +112,7 @@ with sync_playwright() as p:
     assert partial[0]['engagement']=='42.5'
     assert partial[0]['text']=='Selected root, with comma\nand newline'
     assert all(item['reply_collection_status']!='complete' for item in partial)
-    assert partial[-1]['reply_collection_status']=='not_searched'
+    assert partial[-1]['reply_collection_status']=='paused_budget'
     assert partial[-1]['reply_id']==''
     before=len(calls)
     page.reload()
@@ -133,9 +141,9 @@ with sync_playwright() as p:
     other.select_option('#reply-budget','0')
     other.click('#run-replies')
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Reply collection complete")')
-    assert len(calls)==6
+    assert len(calls)==5
     assert calls[4]['data']['next_token']=='B'
-    assert calls[5]['data']['conversation_id']=='300'
+    assert calls[4]['data']['conversation_ids']==['100','300']
     result=combined(other)
     assert len(result)==504
     root=[item for item in result if item['id']=='100']
@@ -157,8 +165,11 @@ with sync_playwright() as p:
 
     # Expired cursors stop explicitly. A user-authorized rescan retains and deduplicates prior replies.
     invalid=json.loads(saved)
-    invalid['threads'][0]['cursor']='invalid'
-    invalid['threads'][0]['seenTokens'].append('invalid')
+    for thread in invalid['threads']:
+        thread['cursor']='invalid'
+        thread['seenTokens'].append('invalid')
+    invalid['batches'][0]['cursor']='invalid'
+    invalid['batches'][0]['seenTokens'].append('invalid')
     other.set_input_files('#reply-checkpoint-file',{'name':'expired.json','mimeType':'application/json','buffer':json.dumps(invalid).encode()})
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Checkpoint restored")')
     other.click('#run-replies')
@@ -185,6 +196,49 @@ with sync_playwright() as p:
     assert paused['threads'][0]['cursor']=='B'
     assert len(paused['threads'][0]['replies'])==502
     assert not paused['threads'][0]['complete']
+    # Legacy checkpoints keep started single-conversation cursors, without reissuing page one.
+    legacy=json.loads(saved)
+    legacy['version']=1;legacy.pop('batches')
+    legacy['threads'][1].update(cursor=None,seenTokens=[],complete=False,pages=0,scanned=0,replies=[],error=None)
+    other.set_input_files('#reply-checkpoint-file',{'name':'legacy.json','mimeType':'application/json','buffer':json.dumps(legacy).encode()})
+    other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Checkpoint restored")')
+    other.select_option('#reply-budget','1')
+    before=len(calls);other.click('#run-replies')
+    other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Paused after 1 API calls")')
+    assert len(calls)==before+1
+    assert calls[-1]['data']['conversation_ids']==['100'] and calls[-1]['data']['next_token']=='B'
+
+    # About 100 total replies across multiple conversations finish in ONE API call.
+    flags['small_batch']=True
+    other.set_input_files('#selected-posts-file',{'name':'small-selected.csv','mimeType':'text/csv','buffer':csv_source})
+    before=len(calls);other.click('#prepare-replies')
+    other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Imported 3 selected")')
+    assert len(calls)==before
+    assert '1 search batch' in other.locator('#reply-plan').inner_text()
+    other.click('#run-replies')
+    other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Reply collection complete")')
+    assert len(calls)==before+1
+    small=combined(other)
+    assert len(small)==100
+    assert len([item for item in small if item['id']=='100'])==50
+    assert len([item for item in small if item['id']=='200'])==25
+    assert len([item for item in small if item['id']=='300'])==25
+    assert all(item['reply_collection_status']=='complete' for item in small)
+
+    # Large ID lists split by query length, visibly before any requests.
+    large='id,conversation_id\n'+'\n'.join(f'{1000000000000000000+i},{1000000000000000000+i}' for i in range(40))+'\n'
+    other.set_input_files('#selected-posts-file',{'name':'many-selected.csv','mimeType':'text/csv','buffer':large.encode()})
+    before=len(calls);other.click('#prepare-replies')
+    other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Imported 40 selected")')
+    plan=json.loads(checkpoint(other))
+    assert len(plan['batches'])>1
+    flattened=[identifier for batch in plan['batches'] for identifier in batch['ids']]
+    assert len(flattened)==40 and len(set(flattened))==40
+    for batch in plan['batches']:
+        terms=' OR '.join('conversation_id:'+identifier for identifier in batch['ids'])
+        query=(terms if len(batch['ids'])==1 else '('+terms+')')+' is:reply lang:en'
+        assert len(query)<=1024
+    assert len(calls)==before
     assert not errors,errors
     context.close();browser.close()
-    print('Replies browser checks passed: CSV validation, original engagement preserved, >500 replies, direct-parent matching, shared-thread reuse, request budget, reset waiting, usage-cap pause, checkpoint transfer, deduplication, expired-cursor recovery, preview/images, mobile, combined CSV including zero replies.')
+    print('Replies browser checks passed: CSV validation, original engagement preserved, 100 replies in one batched call, query-length planning, legacy cursor preservation, >500 replies, direct-parent matching, shared-thread reuse, request budget, reset waiting, usage-cap pause, checkpoint transfer, deduplication, expired-cursor recovery, preview/images, mobile, combined CSV including zero replies.')

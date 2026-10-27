@@ -77,13 +77,39 @@
     return [...new Set(posts.map(post => post.conversationId))].map(id => ({id, cursor: null, seenTokens: [],
       complete: false, pages: 0, scanned: 0, replies: [], error: null}));
   }
+  function batchQuery(ids) {
+    const terms = ids.map(id => 'conversation_id:' + id).join(' OR ');
+    return (ids.length === 1 ? terms : '(' + terms + ')') + ' is:reply lang:en';
+  }
+  function batch(ids, progress = {}) {
+    return {id: ids.join(','), ids: [...ids], cursor: null, seenTokens: [], complete: false,
+      pages: 0, scanned: 0, error: null, ...progress};
+  }
+  function makeBatches(threads) {
+    const batches = [];
+    let ids = [];
+    for (const thread of threads) {
+      if (batchQuery([...ids, thread.id]).length > 1024) { batches.push(batch(ids)); ids = []; }
+      ids.push(thread.id);
+    }
+    if (ids.length) batches.push(batch(ids));
+    return batches;
+  }
+  function mirrorBatchProgress() {
+    if (!state?.batches) return;
+    const byId = new Map(state.threads.map(thread => [thread.id, thread]));
+    for (const item of state.batches) for (const id of item.ids) {
+      Object.assign(byId.get(id), {cursor:item.cursor, seenTokens:[...item.seenTokens],
+        complete:item.complete, pages:item.pages, error:item.error});
+    }
+  }
   function windowValid(window) {
     return window && typeof window.start === 'string' && typeof window.end === 'string' &&
       /^\d{4}-\d\d-\d\dT.*Z$/.test(window.start) && /^\d{4}-\d\d-\d\dT.*Z$/.test(window.end) &&
       Date.parse(window.start) >= Date.parse('2006-03-21T00:00:00Z') && Date.parse(window.start) < Date.parse(window.end) && Date.parse(window.end) <= Date.now();
   }
   function validateCheckpoint(input) {
-    if (!input || input.kind !== 'twitt-replies' || input.version !== 1 || !Array.isArray(input.headers) ||
+    if (!input || input.kind !== 'twitt-replies' || ![1,2].includes(input.version) || !Array.isArray(input.headers) ||
         !Array.isArray(input.posts) || !Array.isArray(input.threads) || !windowValid(input.window) || ![10,100,500].includes(input.pageSize)) throw new Error('Unsupported or invalid replies checkpoint.');
     const table = selectedTable([input.headers, ...input.posts.map(post => post.values)]);
     const expected = makeThreads(table.posts);
@@ -111,15 +137,46 @@
         pages: saved.pages, scanned: saved.scanned, replies,
         error: saved.error && typeof saved.error.code === 'string' ? {code: saved.error.code, message: String(saved.error.message || '')} : null};
     });
+    let batches;
+    if (input.version === 1) {
+      // Preserve every started query/cursor exactly; only untouched conversations may be regrouped.
+      const started = threads.filter(thread => thread.pages || thread.cursor || thread.complete || thread.replies.length);
+      batches = started.map(thread => batch([thread.id], {cursor:thread.cursor, seenTokens:[...thread.seenTokens],
+        complete:thread.complete, pages:thread.pages, scanned:thread.scanned, error:thread.error}));
+      batches.push(...makeBatches(threads.filter(thread => !started.includes(thread))));
+    } else {
+      if (!Array.isArray(input.batches) || !input.batches.length || input.batches.length > threads.length) throw new Error('Checkpoint is missing its exact search batches.');
+      const claimed = new Set();
+      const byConversation = new Map(threads.map(thread => [thread.id, thread]));
+      batches = input.batches.map(saved => {
+        if (!saved || !Array.isArray(saved.ids) || !saved.ids.length || !saved.ids.every(isId) ||
+            batchQuery(saved.ids).length > 1024 || new Set(saved.ids).size !== saved.ids.length) throw new Error('Invalid conversation batch in checkpoint.');
+        for (const id of saved.ids) {
+          const member = byConversation.get(id);
+          if (!member || claimed.has(id) || member.cursor !== saved.cursor || member.complete !== saved.complete || member.pages !== saved.pages ||
+              JSON.stringify(member.seenTokens) !== JSON.stringify(saved.seenTokens) || member.error?.code !== saved.error?.code) throw new Error('Batch membership or saved pagination progress is inconsistent.');
+          claimed.add(id);
+        }
+        if (!Number.isSafeInteger(saved.scanned) || saved.scanned < 0) throw new Error('Invalid batch page counts.');
+        return batch(saved.ids, {cursor:saved.cursor, seenTokens:[...saved.seenTokens], complete:saved.complete,
+          pages:saved.pages, scanned:saved.scanned, error:saved.error ? {code:String(saved.error.code), message:String(saved.error.message || '')} : null});
+      });
+      if (claimed.size !== threads.length) throw new Error('Checkpoint batches do not cover every conversation.');
+    }
+    for (const item of batches) for (const id of item.ids) {
+      Object.assign(threads.find(thread => thread.id === id), {cursor:item.cursor, seenTokens:[...item.seenTokens],
+        complete:item.complete, pages:item.pages, error:item.error});
+    }
     let prefix = 'reply_';
     while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
-    return {kind: 'twitt-replies', version: 1, id: crypto.randomUUID(), ...table, threads, prefix,
+    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix,
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
       retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: threads.every(thread => thread.complete) ? 'complete' : 'paused',
       message: 'Checkpoint restored. Review progress, then click Start / resume when ready.'};
   }
   async function save() {
+    mirrorBatchProgress();
     state.updatedAt = new Date().toISOString();
     await CollectionStore.saveReplies(state);
   }
@@ -136,12 +193,13 @@
     pause.disabled = !running;
     [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume')].forEach(input => { input.disabled = running || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || !ready;
+    if (state) q('reply-plan').textContent = `${state.posts.length} selected posts · ${state.threads.length} conversations · ${state.batches.length} search batch(es), ${state.batches.filter(item => !item.complete).length} unfinished. Each unfinished batch needs at least one call; extra pages and failed attempts can add calls. Each call requests up to ${state.pageSize} results across the whole batch, not per post.`;
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
-    q('restart-reply-cursor').hidden = !state?.threads.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
+    q('restart-reply-cursor').hidden = !state?.batches.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
     q('restart-reply-cursor').disabled = running;
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const label of ['Selected post', 'Direct replies', 'Conversation pages', 'Status', 'Preview']) {
+    for (const label of ['Selected post', 'Direct replies', 'Shared batch pages', 'Status', 'Preview']) {
       const th = document.createElement('th'); th.textContent = label; head.append(th);
     }
     const body = table.createTBody();
@@ -219,9 +277,11 @@
         if (!windowValid(window)) throw new Error('Choose a valid UTC reply date range ending in the present or past.');
         let prefix = 'reply_';
         while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
-        const next = {kind: 'twitt-replies', version: 1, id: crypto.randomUUID(), ...table,
-          threads: makeThreads(table.posts), prefix, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
-          retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${makeThreads(table.posts).length} conversations. No API calls have been made.`};
+        const threads = makeThreads(table.posts);
+        const batches = makeBatches(threads);
+        const next = {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table,
+          threads, batches, prefix, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
+          retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.`};
         await CollectionStore.saveReplies(next); state = next; previewId = null;
         status.classList.remove('error'); render();
       });
@@ -246,7 +306,7 @@
   async function collect() {
     const latest = await CollectionStore.loadReplies();
     if (!latest || latest.id !== state?.id) throw new Error('The reply job changed in another tab. Refresh to load its progress.');
-    state = latest; stop = false; running = true;
+    state = validateCheckpoint(latest); state.id = latest.id; stop = false; running = true;
     document.dispatchEvent(new CustomEvent('twitt:reply-running', {detail: true}));
     const budget = Number(q('reply-budget').value);
     const automatic = q('reply-auto-resume').checked;
@@ -254,8 +314,9 @@
     status.classList.remove('error');
     try {
       while (!stop) {
-        const thread = state.threads.find(item => !item.complete);
-        if (!thread) { state.status = 'complete'; state.message = 'Reply collection complete for the fixed date window: X returned no next page for every conversation.'; break; }
+        const thread = state.batches.find(item => !item.complete);
+        const members = thread ? state.threads.filter(item => thread.ids.includes(item.id)) : [];
+        if (!thread) { state.status = 'complete'; state.message = 'Reply collection complete for the fixed date window: X returned no next page for every search batch.'; break; }
         if (budget && calls >= budget) { state.status = 'paused_budget'; state.message = `Paused after ${calls} API calls this run. Increase the run budget or resume when ready.`; break; }
         if (state.retryAt && Date.now() < state.retryAt) {
           if (!automatic) { state.status = 'paused_rate_limit'; state.message = 'Paused until X’s reset time. Resume when ready.'; break; }
@@ -266,13 +327,13 @@
           if (stop) break;
         }
         state.retryAt = null; state.status = 'running'; thread.error = null;
-        state.message = `Searching conversation ${thread.id}: ${thread.pages} pages saved. API calls this run: ${calls + 1}${budget ? '/' + budget : ''}.`;
+        state.message = `Searching batch of ${thread.ids.length} conversations: ${thread.pages} pages saved. API calls this run: ${calls + 1}${budget ? '/' + budget : ''}.`;
         state.attempts++; calls++;
         await save(); render();
         let response, payload;
         try {
           response = await fetch('/api/index', {method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({action:'replies', conversation_id:thread.id, start_time:state.window.start,
+            body: JSON.stringify({action:'replies', conversation_ids:thread.ids, start_time:state.window.start,
               end_time:state.window.end, count:state.pageSize, next_token:thread.cursor}), signal:AbortSignal.timeout(50000)});
           payload = await response.json();
         } catch {
@@ -299,16 +360,20 @@
           thread.error = {code:'repeated_cursor', message:'X repeated a pagination cursor. Paused without claiming completion.'};
           state.status = 'paused_error'; state.message = thread.error.message; break;
         }
-        const selected = new Set(state.posts.filter(post => post.conversationId === thread.id).map(post => post.id));
-        const seen = new Set(thread.replies.map(reply => reply.id));
+        const selected = new Map(state.posts.filter(post => thread.ids.includes(post.conversationId)).map(post => [post.id,post]));
+        const byConversation = new Map(members.map(item => [item.id,item]));
+        const seen = new Set(members.flatMap(item => item.replies.map(reply => reply.id)));
         for (const row of payload.rows) {
-          if (row.conversation_id !== thread.id || !selected.has(row.parent_post_id) || !isId(row.id) || seen.has(row.id)) continue;
-          thread.replies.push(Object.fromEntries(replyFields.map(field => [field, row[field] ?? '']))); seen.add(row.id);
+          const member = byConversation.get(row.conversation_id);
+          const parent = selected.get(row.parent_post_id);
+          if (!member || !parent || parent.conversationId !== row.conversation_id || !isId(row.id) || seen.has(row.id)) continue;
+          member.replies.push(Object.fromEntries(replyFields.map(field => [field, row[field] ?? '']))); seen.add(row.id);
         }
         thread.pages++; thread.scanned += Number.isSafeInteger(payload.scanned_count) ? payload.scanned_count : payload.rows.length;
+        for (const member of members) member.scanned += payload.rows.filter(row => row.conversation_id === member.id).length;
         thread.cursor = cursor; if (cursor) thread.seenTokens.push(cursor);
         thread.complete = !cursor; thread.error = null;
-        state.message = `Saved page ${thread.pages} for ${thread.id}; ${thread.replies.length} direct replies matched your selected posts.`;
+        state.message = `Saved page ${thread.pages} for this batch; ${members.reduce((count,item) => count + item.replies.length,0)} direct replies matched your selected posts.`;
         // Persist the data and cursor together before another request can run.
         await save(); render();
         if (!stop) await sleep(1100);
@@ -316,7 +381,7 @@
       if (stop) {
         const complete = state.threads.every(thread => thread.complete);
         state.status = complete ? 'complete' : 'paused';
-        state.message = complete ? 'Reply collection complete for every conversation in the fixed date window.' : 'Paused by you. Replies and cursor retained; resume when ready.';
+        state.message = complete ? 'Reply collection complete for every search batch in the fixed date window.' : 'Paused by you. Replies and cursor retained; resume when ready.';
       }
       await save();
     } catch (error) {
@@ -331,13 +396,13 @@
     try { await exclusive(collect); } catch (error) { showError(error); }
   });
   q('restart-reply-cursor').addEventListener('click', async () => {
-    if (running || !state || !confirm('Restart the rejected conversation from its first page? Already collected replies are retained and deduplicated. This uses additional API allowance.')) return;
+    if (running || !state || !confirm('Restart the rejected search batch from its first page? Already collected replies are retained and deduplicated. This uses additional API allowance.')) return;
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
         if (!latest || latest.id !== state.id) throw new Error('The reply job changed in another tab. Refresh before restarting a cursor.');
-        state = latest;
-        const thread = state.threads.find(item => !item.complete && item.error?.code === 'cursor_invalid');
+        state = validateCheckpoint(latest); state.id = latest.id;
+        const thread = state.batches.find(item => !item.complete && item.error?.code === 'cursor_invalid');
         if (!thread) return;
         thread.cursor = null; thread.seenTokens = []; thread.error = null;
         state.retryAt = null; state.status = 'paused'; state.message = 'Cursor restart prepared. Existing replies retained; click Start / resume to search again.';
