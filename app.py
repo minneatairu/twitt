@@ -285,7 +285,22 @@ def replies_page(data, fetch=None):
         params['next_token'] = token
     payload = (fetch or request_page)(params)
     if not isinstance(payload, dict) or payload.get('errors') or not isinstance(payload.get('meta'), dict):
-        raise ValueError('X returned an incomplete reply page. The saved cursor was not advanced.')
+        reasons = []
+        if isinstance(payload, dict):
+            errors = payload.get('errors', [])
+            if isinstance(errors, list):
+                for error in errors[:3]:
+                    if isinstance(error, dict):
+                        # Forward bounded diagnostic fields, never the full upstream response.
+                        detail = ': '.join(str(error[key])[:400] for key in ('title', 'detail', 'message') if error.get(key))
+                        if detail:
+                            reasons.append(detail)
+            if not isinstance(payload.get('meta'), dict):
+                reasons.append('X omitted pagination metadata; completion cannot be verified')
+        else:
+            reasons.append('X returned an unexpected response format')
+        diagnostic = ' X details: ' + '; '.join(reasons) + '.' if reasons else ''
+        raise ValueError('X returned an incomplete reply page.' + diagnostic + ' The saved cursor was not advanced. Previously saved replies are unchanged; this page was not accepted. Retrying may use additional API allowance.')
     users = {user['id']: user for user in payload.get('includes', {}).get('users', [])}
     media = {item['media_key']: item for item in payload.get('includes', {}).get('media', [])}
     rows = []

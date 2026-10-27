@@ -60,11 +60,11 @@ class ReplySearchTests(unittest.TestCase):
                 app.replies_page(self.data(conversation_ids=ids), fetch=lambda _: self.fail('Invalid batch reached X'))
 
     def test_partial_response_is_not_successful(self):
-        with self.assertRaisesRegex(ValueError, 'cursor was not advanced'):
+        with self.assertRaisesRegex(ValueError, 'X details: Unavailable.*cursor was not advanced'):
             app.replies_page(self.data(), fetch=lambda _: {'data': [], 'errors': [{'title': 'Unavailable'}]})
 
     def test_malformed_success_does_not_claim_exhaustion(self):
-        with self.assertRaisesRegex(ValueError, 'incomplete reply page'):
+        with self.assertRaisesRegex(ValueError, 'omitted pagination metadata'):
             app.replies_page(self.data(), fetch=lambda _: {})
 
     def test_rate_limit_carries_reset_time(self):
