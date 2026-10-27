@@ -36,6 +36,7 @@ with sync_playwright() as p:
         page.locator('#download-combined').click()
     assert result.value.suggested_filename=='Replies_Research April.csv'
     with open(result.value.path(),encoding='utf-8-sig',newline='') as f: csvrows=list(csv.reader(f))
+    assert csvrows[0][csvrows[0].index('text')+1]=='reply_text'
     assert not any(name in csvrows[0] for name in ['reply_images','reply_likes','reply_window_start','reply_window_end','reply_collected_count','reply_collection_status'])
     page.locator('#save-replies-drive').click()
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('HTTP 503')")
@@ -55,5 +56,16 @@ with sync_playwright() as p:
     page.locator('#save-replies-drive').click()
     page.wait_for_function("() => !document.getElementById('save-replies-drive').disabled")
     assert len(creates)==1 and xcalls==[]
+    # Alternate uploaded text heading is placed beside reply text, with values aligned.
+    page.on('dialog',lambda dialog:dialog.accept())
+    page.locator('#selected-posts-file').set_input_files({'name':'Tweets.csv','mimeType':'text/csv','buffer':b'id,conversation_id,tweet,engagement\n100,100,original tweet,42\n'})
+    page.locator('#prepare-replies').click()
+    page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('Imported')")
+    with page.expect_download() as alternate:
+        page.locator('#download-combined').click()
+    with open(alternate.value.path(),encoding='utf-8-sig',newline='') as f: alternate_rows=list(csv.DictReader(f))
+    headings=list(alternate_rows[0])
+    assert headings[headings.index('tweet')+1]=='reply_text'
+    assert alternate_rows[0]['tweet']=='original tweet' and alternate_rows[0]['engagement']=='42'
     browser.close()
     print('PASS: original filename survives reload; CSV and Drive schemas match; retry updates same file; literal values preserved; no X calls.')

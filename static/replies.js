@@ -96,13 +96,23 @@
   }
   function exportTitle(job) { return 'Replies_' + sourceName(job); }
   function exportTable() {
-    const rows = [[...state.headers, ...exportFields.map(field => state.prefix + field)]];
+    const headers = [...state.headers, ...exportFields.map(field => state.prefix + field)];
+    const names = state.headers.map(header => header.trim().toLowerCase());
+    const textColumn = ['text','tweet','tweet_text','post_text','tweet text'].map(name => names.indexOf(name)).find(index => index >= 0);
+    const order = headers.map((_, index) => index);
+    if (textColumn !== undefined) {
+      const replyText = state.headers.length + exportFields.indexOf('text');
+      order.splice(order.indexOf(replyText), 1);
+      order.splice(textColumn + 1, 0, replyText);
+    }
+    const rows = [order.map(index => headers[index])];
     for (const post of state.posts) {
       const thread = state.threads.find(item => item.id === post.conversationId);
       const replies = repliesFor(post, thread);
       for (const reply of replies.length ? replies : [null]) {
         const metadata = {...reply, window_start:state.window.start, window_end:state.window.end};
-        rows.push([...post.values, ...exportFields.map(field => String(metadata[field] ?? ''))]);
+        const values = [...post.values, ...exportFields.map(field => String(metadata[field] ?? ''))];
+        rows.push(order.map(index => values[index]));
       }
     }
     return rows;
