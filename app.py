@@ -44,10 +44,10 @@ def month_bounds(start, end):
 
 
 def english_query(query):
-    # Group the entire user query so OR branches cannot bypass the language filter.
-    query = f'({query.strip()}) lang:en'
+    # Group the entire user query so OR branches cannot bypass required filters.
+    query = f'({query.strip()}) lang:en -is:retweet'
     if len(query) > 1024:
-        raise ValueError('Shorten the query to leave room for the English-language filter.')
+        raise ValueError('Shorten the query to leave room for the English-language and repost filters.')
     return query
 
 

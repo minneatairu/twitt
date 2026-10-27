@@ -93,14 +93,14 @@ The default bind address is `127.0.0.1`, port `8000`. `HOST` and `PORT` can over
 
 Use **Posts per month → 10** and choose one month to test with up to 10 posts. Options are 5 (default), 10, 50, 100, and 500. For the smallest test, leave the default at 5. X archive search requires at least 10 results per request, so a five-post collection may fetch 10 from X while displaying/exporting only the first 5. These are live searches and still use your X API allowance; each collection searches only its selected month.
 
-Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. The server groups your query and appends `lang:en` to require English posts, including every OR branch. Only posts X identifies with `lang=en` are returned; language detection is supplied by X. Other search operators are preserved. Select one month. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
+Enter `#solar`, `"clean energy"`, or `(#solar OR #wind) lang:en -is:retweet`. The server groups your query and appends `lang:en -is:retweet` to require English posts and exclude reposts, including every OR branch. Only posts X identifies with `lang=en` are returned; language detection is supplied by X. Other search operators are preserved. Select one month. Calendar boundaries use UTC; the current month ends at collection time. Future months are rejected.
 
 For each month, the app requests full-archive results with `sort_order=relevancy`, paginating until it reaches your selected limit (up to 500 unique posts) or X has no more matches. Posts retain the order X returns them across pages. The app does not apply its own ranking or reorder posts by engagement. Preview and CSV preserve the same X response order for the selected month. Engagement metrics are included as metadata and reflect collection time. Deleted and inaccessible posts cannot be collected. Months with fewer matches yield fewer rows.
 
 
 ### Research data processing
 
-- The app sends your query wrapped in parentheses with `lang:en` appended, your UTC month boundaries, and `sort_order=relevancy` to X's full-archive API. This is X's relevance setting, not a custom scoring formula or the personalized X website feed.
+- The app sends your query wrapped in parentheses with `lang:en -is:retweet` appended, your UTC month boundaries, and `sort_order=relevancy` to X's full-archive API. This is X's relevance setting, not a custom scoring formula or the personalized X website feed.
 - Responses are paginated in the order X provides. Posts not labeled `lang=en` by X are excluded. Duplicate post IDs retain their first occurrence and its metadata. Collection stops at your chosen number of unique English posts per month or when X supplies no next page.
 - Only the selected month is searched. X's response order is preserved in the preview, CSV, and Google Sheets. No engagement thresholds, custom scoring formulas, calculated engagement-score columns, or engagement-based sorting are applied.
 - Likes, reposts, replies, quotes, and other available public metrics are copied individually from X. Their values reflect collection time, not the historical month selected. Unavailable metrics stay empty. `raw_json` preserves the returned post, author, and directly attached media objects for comparison with the flattened columns.

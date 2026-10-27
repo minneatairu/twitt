@@ -211,7 +211,7 @@ class ServerTests(unittest.TestCase):
         with patch('app.request_page', return_value=payload) as fetch:
             result = app.search_page({'query': '#solar OR #wind', 'start': '2024-01', 'end': '2024-01'})
             params = fetch.call_args.args[0]
-            self.assertEqual(params['query'], '(#solar OR #wind) lang:en')
+            self.assertEqual(params['query'], '(#solar OR #wind) lang:en -is:retweet')
             self.assertEqual(params['sort_order'], 'relevancy')
             self.assertEqual(params['max_results'], 10)
             self.assertEqual([row['id'] for row in result['rows']], ['1', '4'])
