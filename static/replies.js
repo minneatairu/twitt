@@ -329,12 +329,11 @@
     }
     more.addEventListener('click', page); container.append(more); page();
   }
+  let actionActive = false;
   async function exclusive(action) {
-    if (!navigator.locks) throw new Error('This browser does not support safe collection locking. Use a current Chrome, Edge, Firefox, or Safari browser.');
-    return navigator.locks.request('twitt-reply-job', {ifAvailable: true}, async lock => {
-      if (!lock) throw new Error('Reply collection is active in another tab. Pause or close that tab first.');
-      return action();
-    });
+    if (actionActive) throw new Error('An action is already running in this tab. Wait for it to finish.');
+    actionActive = true;
+    try { return await action(); } finally { actionActive = false; }
   }
   function showError(error) { status.textContent = error.message || 'Reply collection failed.'; status.classList.add('error'); }
   source.addEventListener('change', async () => {
@@ -352,8 +351,6 @@
     if (running || exporting || !ready || !source.files[0]) return;
     try {
       await exclusive(async () => {
-        const existing = await CollectionStore.loadReplies();
-        if ((state || existing) && !confirm('Replace the local replies job? Download its checkpoint first. Your uploaded CSV and Google spreadsheets are not changed.')) return;
         if (source.files[0].size > 32 * 1024 * 1024) throw new Error('Selected-posts CSV must be at most 32 MiB.');
         const table = selectedTable(parseCSV(await source.files[0].text()));
         const until = new Date(end.value + 'T00:00:00Z'); until.setUTCDate(until.getUTCDate() + 1);
@@ -379,8 +376,6 @@
       await exclusive(async () => {
         if (checkpointFile.files[0].size > 64 * 1024 * 1024) throw new Error('Checkpoint must be at most 64 MiB.');
         const next = validateCheckpoint(JSON.parse(await checkpointFile.files[0].text()));
-        const existing = await CollectionStore.loadReplies();
-        if ((state || existing) && !confirm('Replace this browser’s active replies job with the imported checkpoint?')) return;
         await CollectionStore.saveReplies(next); state = next; previewId = null;
         start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize); q('skip-zero-replies').checked = state.skipZeroReplies;
         status.classList.remove('error'); render();
@@ -393,7 +388,7 @@
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
-        if (!latest || latest.id !== state.id) throw new Error('Job changed in another tab. Refresh first.');
+        if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry this action.');
         state = validateCheckpoint(latest); state.id = latest.id;
         state.scope = 'conversation'; state.retryAt = null;
         state.batches = state.batches.map(item => batch(item.ids));
@@ -405,7 +400,7 @@
     } catch (error) { showError(error); }
   });
   q('clear-replies').addEventListener('click', async () => {
-    if (running || exporting || !ready || !confirm('Clear the saved replies job and its collected replies from this browser? Download a checkpoint first if you need to keep progress. Original files and Google spreadsheets are unchanged.')) return;
+    if (running || exporting || !ready) return;
     try {
       await exclusive(async () => {
         await CollectionStore.clearReplies();
@@ -416,7 +411,7 @@
         q('reply-auto-resume').checked = true; q('skip-zero-replies').checked = false;
         q('reply-plan').textContent = ''; q('reply-preview').replaceChildren();
         status.classList.remove('error');
-        status.textContent = 'Replies job cleared. Import a CSV to start a new job. No API calls have been made.';
+        status.textContent = 'Current replies cleared. Import a CSV to start a new job. No API calls have been made.';
         render();
       });
     } catch (error) { showError(error); }
@@ -424,7 +419,7 @@
   pause.addEventListener('click', () => { stop = true; pause.disabled = true; status.textContent = 'Pausing after the current response is saved…'; });
   async function collect() {
     const latest = await CollectionStore.loadReplies();
-    if (!latest || latest.id !== state?.id) throw new Error('The reply job changed in another tab. Refresh to load its progress.');
+    if (!latest || latest.id !== state?.id) throw new Error('The current session job changed. Choose the file you want to use.');
     state = validateCheckpoint(latest); state.id = latest.id; stop = false; running = true;
     document.dispatchEvent(new CustomEvent('twitt:reply-running', {detail: true}));
     const budget = Number(q('reply-budget').value);
@@ -510,7 +505,7 @@
       }
       await save();
     } catch (error) {
-      state.status = 'paused_error'; state.message = error.message + ' Stopped before another request. Download a checkpoint before closing this tab.';
+      state.status = 'paused_error'; state.message = error.message + ' Stopped before another request. Download a checkpoint before refreshing or closing this tab.';
       try { await save(); } catch { /* Keep the in-memory state downloadable if browser storage is full. */ }
     } finally {
       running = false; document.dispatchEvent(new CustomEvent('twitt:reply-running', {detail:false})); render();
@@ -525,7 +520,7 @@
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
-        if (!latest || latest.id !== state.id) throw new Error('The reply job changed in another tab. Refresh before restarting a cursor.');
+        if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry this action.');
         state = validateCheckpoint(latest); state.id = latest.id;
         const thread = state.batches.find(item => !item.complete && item.error?.code === 'cursor_invalid');
         if (!thread) return;
@@ -558,7 +553,7 @@
       const token = await authorization;
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
-        if (!latest || latest.id !== state.id) throw new Error('Reply job changed in another tab. Refresh before saving.');
+        if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry saving.');
         state = validateCheckpoint(latest); state.id = latest.id;
         state.replySheet ||= {};
         await TwittSheets.writeTable(exportTitle(state), exportTable(), state.replySheet, token, save, message => { status.textContent = message; });
@@ -573,17 +568,5 @@
     if (state) download('twitt-replies-checkpoint.json', JSON.stringify(state), 'application/json');
   });
   document.addEventListener('twitt:collection-busy', event => { initialBusy = event.detail; render(); });
-  (async () => {
-    try {
-      const saved = await CollectionStore.loadReplies();
-      if (saved) {
-        // Revalidate persisted files just as imported files; never resume paid calls on load.
-        state = validateCheckpoint(saved); state.id = saved.id;
-        state.retryAt = Number.isFinite(saved.retryAt) ? saved.retryAt : null;
-        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize); q('skip-zero-replies').checked = state.skipZeroReplies;
-        render();
-      }
-    } catch (error) { showError(error); }
-    finally { ready = true; render(); }
-  })();
+  ready = true; render();
 })();

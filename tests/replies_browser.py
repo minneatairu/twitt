@@ -5,6 +5,7 @@ import json
 import os
 import time
 from playwright.sync_api import sync_playwright
+from browser_helpers import reload_with_checkpoint
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox'])
@@ -101,7 +102,7 @@ with sync_playwright() as p:
     assert '1 search batch' in page.locator('#reply-plan').inner_text()
     # Keep this regression exercising legacy direct-only checkpoint behavior.
     page.evaluate("async () => { const s=await CollectionStore.loadReplies(); s.scope='direct'; await CollectionStore.saveReplies(s); }")
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function('() => !document.querySelector("#run-replies").disabled')
     page.select_option('#reply-budget','1')
     page.click('#run-replies')
@@ -119,7 +120,7 @@ with sync_playwright() as p:
     assert 'paused_budget' in page.locator('#reply-summary').inner_text()
     assert all(row['reply_id'] for row in partial)
     before=len(calls)
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function('() => !document.querySelector("#run-replies").disabled')
     assert len(calls)==before, 'Reload must never start requests automatically'
     page.select_option('#reply-budget','0')
@@ -219,7 +220,7 @@ with sync_playwright() as p:
     assert len(calls)==before
     assert '1 search batch' in other.locator('#reply-plan').inner_text()
     other.evaluate("async () => { const s=await CollectionStore.loadReplies(); s.scope='direct'; await CollectionStore.saveReplies(s); }")
-    other.reload()
+    reload_with_checkpoint(other)
     other.wait_for_function('() => !document.querySelector("#run-replies").disabled')
     other.click('#run-replies')
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Reply collection complete")')

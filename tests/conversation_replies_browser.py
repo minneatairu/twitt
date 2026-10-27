@@ -2,6 +2,7 @@
 import csv
 import os
 from playwright.sync_api import sync_playwright
+from browser_helpers import reload_with_checkpoint
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
     page = browser.new_page()
@@ -37,7 +38,7 @@ with sync_playwright() as p:
     assert not excluded.intersection(rows[0])
     assert {'reply_id','reply_post_type','reply_parent_post_id','reply_conversation_id'}.issubset(rows[0])
     assert [row['reply_parent_post_id'] for row in rows]==['999','','100']
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
     assert '3 unique replies' in page.locator('#reply-plan').inner_text()
     # Simulate a previously completed direct-only job, with saved matches and an old cursor query.
@@ -46,7 +47,7 @@ with sync_playwright() as p:
       s.scope='direct'; s.threads[0].replies=[{id:'902',conversation_id:'100',parent_post_id:'100'}];
       await CollectionStore.saveReplies(s);
     }""")
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('convert-conversation').hidden")
     page.locator('#convert-conversation').click()
     page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('Whole-conversation collection prepared')")

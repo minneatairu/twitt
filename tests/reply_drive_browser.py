@@ -2,6 +2,7 @@
 import csv
 import os
 from playwright.sync_api import sync_playwright
+from browser_helpers import reload_with_checkpoint
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
     page=browser.new_page()
@@ -39,7 +40,7 @@ with sync_playwright() as p:
       s.threads[0].replies=[{id:'900',conversation_id:'100',parent_post_id:'100',text:'=reply'}];
       await CollectionStore.saveReplies(s);
     }""")
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('download-combined').closest('#reply-controls').hidden")
     with page.expect_download() as result:
         page.locator('#download-combined').click()
@@ -52,7 +53,7 @@ with sync_playwright() as p:
     assert len(creates)==1 and creates[0]['properties']['title']=='Replies_Research April'
     saved=page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['replySheet']['id']=='reply-file-123'
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('save-replies-drive').disabled")
     with page.expect_download() as restored:
         page.locator('#download-combined').click()

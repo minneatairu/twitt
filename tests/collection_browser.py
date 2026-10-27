@@ -79,7 +79,7 @@ with sync_playwright() as p:
     assert {'engagement','engagement_score','attachments','media'}.isdisjoint(result[0])
     assert result[0]['images']=='["https://pbs.twimg.com/media/test.jpg"]'
     assert page.locator('#gallery img').first.get_attribute('alt')=='Post image'
-    page.reload();page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("saved")')
+    assert page.locator('#slot-0').evaluate('(el) => el.classList.contains("saved")')
     assert len(calls)==before
     page.fill('#month-0','2024-02');assert page.locator('#search-month').is_enabled()
     page.fill('#month-0','2024-01')
@@ -87,7 +87,7 @@ with sync_playwright() as p:
     settings['fail_at']='A102?';page.click('#search-month')
     page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("failed")')
     before=len(calls);assert before==6
-    failed=writes[-1];page.reload()
+    failed=writes[-1]
     page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("failed")')
     page.click('#search-month');page.wait_for_function('() => document.querySelector("#slot-0").classList.contains("saved")')
     assert len(calls)==before and len(creates)==2
@@ -96,33 +96,15 @@ with sync_playwright() as p:
     page.click('#more');assert page.locator('#gallery .post').count()==48
     page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
 
-    # Old four-month data is archived intact, never silently truncated to one month.
-    context=browser.new_context();legacy=context.new_page();setup(legacy)
-    slots=[{'month':'2024-0'+str(i+1),'rows':[{'id':str(10+i),'text':'Previous data','media':'[]'}],
-            'status':'saved','searchComplete':True,'cursor':None,'endTime':None,'seenTokens':[],
-            'uploaded':1,'sheetStart':2+i,'error':''} for i in range(4)]
-    previous={'version':1,'title':'Previous four months','query':'#climate','limit':5,'createdAt':'2024-01-01',
-              'sheet':{'id':'old-shared-sheet','nextRow':6,'headerWritten':True},'slots':slots}
-    legacy.evaluate('async data => CollectionStore.save(data)',previous)
-    before=len(calls);legacy.reload();legacy.locator('#previous-collection').wait_for(state='visible')
-    assert len(calls)==before
-    assert legacy.locator('input[type=month]').count()==1
-    prior=list(csv.DictReader(io.StringIO(downloaded(legacy,'#download-previous'))))
-    assert [row['id'] for row in prior]==['10','11','12','13']
-    assert json.loads(downloaded(legacy,'#download-previous-progress'))['slots']==slots
-    assert legacy.locator('#open-previous').get_attribute('href').endswith('/old-shared-sheet/edit')
-    legacy.fill('#collection-title','New one-month search');legacy.fill('#month-0','2024-05');legacy.click('#submit')
-    legacy.wait_for_function('async () => (await CollectionStore.load()).version === 2')
-    legacy.reload();legacy.locator('#previous-collection').wait_for(state='visible')
-    assert len(list(csv.DictReader(io.StringIO(downloaded(legacy,'#download-previous')))))==4
-    assert len(calls)==before
-    # An old collection containing only one month migrates in place with its file ID/rows.
-    previous['slots']=slots[:1]
-    legacy.evaluate('async data => CollectionStore.save(data)',previous);legacy.reload()
-    legacy.wait_for_function('async () => (await CollectionStore.load()).version === 2')
-    assert legacy.evaluate('async () => (await CollectionStore.load()).sheet.id')=='old-shared-sheet'
-    assert legacy.evaluate('async () => (await CollectionStore.load()).rows[0].id')=='10'
+    # Initial searches are session-only too: reload must not restore or start calls.
+    before=len(calls)
+    page.reload()
+    page.wait_for_function('() => !document.querySelector("#submit").disabled')
+    assert page.evaluate('() => CollectionStore.load()') is None
+    assert page.locator('#collection-title').input_value()==''
+    assert page.locator('#query').input_value()==''
+    assert page.locator('#download').is_hidden()
     assert len(calls)==before
     assert not errors,errors
-    context.close();browser.close()
-    print('Single-month browser checks passed: one month, editable settings, no engagement fields, X order, images, upload retry/reload without X refetch, 500-post batches, mobile, preservation of old four-month and one-month collections.')
+    browser.close()
+    print('Single-month browser checks passed: one month, editable settings, no engagement fields, X order, images, same-session upload retry without X refetch, 500-post batches, mobile, fresh session after reload.')

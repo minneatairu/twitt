@@ -1,6 +1,7 @@
 """Save verified partial-page replies, restore safely, and deduplicate the same-page retry."""
 import os
 from playwright.sync_api import sync_playwright
+from browser_helpers import reload_with_checkpoint
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
     page = browser.new_page()
@@ -29,7 +30,7 @@ with sync_playwright() as p:
     assert not saved['batches'][0]['complete']
     assert len(saved['threads'][0]['replies']) == 1
     assert saved['status'] == 'paused_incomplete'
-    page.reload()
+    reload_with_checkpoint(page)
     page.wait_for_function("() => !document.getElementById('run-replies').disabled")
     assert len(calls) == 1
     page.locator('#run-replies').click()

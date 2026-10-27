@@ -1,28 +1,15 @@
-// One active collection per browser origin. Search results are local; OAuth tokens are never stored.
+// Session memory only: no IndexedDB, localStorage, sessionStorage, or automatic restore.
+// Each tab owns its data. CSV/Google exports and downloaded checkpoints are explicit saves.
 (() => {
-  const database = new Promise((resolve, reject) => {
-    const request = indexedDB.open('twitt-collections', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('collections');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(new Error('Cannot open local collection storage. Enable browser storage to continue.'));
-  });
-  async function transaction(mode, action) {
-    const db = await database;
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('collections', mode);
-      const request = action(tx.objectStore('collections'));
-      tx.oncomplete = () => resolve(request.result);
-      tx.onerror = tx.onabort = () => reject(new Error('Could not save collection progress in this browser. Free local storage and retry; do not clear this tab.'));
-    });
-  }
+  const values = new Map();
+  const read = async key => values.has(key) ? structuredClone(values.get(key)) : undefined;
+  const write = async (key, value) => { values.set(key, structuredClone(value)); };
   window.CollectionStore = {
-    load: () => transaction('readonly', store => store.get('active')),
-    save: collection => transaction('readwrite', store => store.put(collection, 'active')),
-    clear: () => transaction('readwrite', store => store.delete('active')),
-    loadPrevious: () => transaction('readonly', store => store.get('previous-multimonth')),
-    savePrevious: collection => transaction('readwrite', store => store.put(collection, 'previous-multimonth')),
-    clearReplies: () => transaction('readwrite', store => store.delete('replies-active')),
-    loadReplies: () => transaction('readonly', store => store.get('replies-active')),
-    saveReplies: state => transaction('readwrite', store => store.put(state, 'replies-active'))
+    load: () => read('active'),
+    save: collection => write('active', collection),
+    clear: async () => { values.delete('active'); },
+    clearReplies: async () => { values.delete('replies-active'); },
+    loadReplies: () => read('replies-active'),
+    saveReplies: state => write('replies-active', state)
   };
 })();

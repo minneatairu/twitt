@@ -75,8 +75,6 @@ let collection = null;
 let busy = false;
 let replyRunning = false;
 let initialized = false;
-let previousUrl = null;
-let previousJsonUrl = null;
 monthInput.max = current;
 monthInput.value = current;
 function hasData() {
@@ -140,7 +138,6 @@ function prepareCollection() {
     status.textContent = 'Enter a title, a search query, and one month from March 2006 through the present.';
     return false;
   }
-  if (hasData() && !confirm('Start a new single-month collection with these settings? Your existing Google spreadsheet is kept. Download the current CSV first if you need its local results.')) return false;
   collection = {version: 2, title: titleInput.value.trim(), query: queryInput.value.trim(), month: monthInput.value,
     limit: Number(postLimit.value), createdAt: new Date().toISOString(), rows: [], status: 'not_started', searchComplete: false,
     cursor: null, endTime: null, seenTokens: [], uploaded: 0, sheetStart: null, error: '',
@@ -200,7 +197,7 @@ searchButton.addEventListener('click', async () => {
   } finally { busy = false; render(); }
 });
 newButton.addEventListener('click', async () => {
-  if (busy || replyRunning || !confirm('Start a new collection? This clears the active search’s local results. Google spreadsheets and reply jobs are not deleted.')) return;
+  if (busy || replyRunning) return;
   try {
     await CollectionStore.clear(); collection = null;
     if (csvUrl) URL.revokeObjectURL(csvUrl);
@@ -209,49 +206,14 @@ newButton.addEventListener('click', async () => {
     render(); refreshResults();
   } catch (error) { status.textContent = error.message; }
 });
-function showPrevious(previous) {
-  if (!previous) return;
-  document.querySelector('#previous-collection').hidden = false;
-  const rows = previous.slots.filter(slot => slot.searchComplete).flatMap(slot => slot.rows.map(row => ({...row, collection_title: previous.title})));
-  const fields = columns.filter(field => !['attachments','media','month','hashtags'].includes(field));
-  const lines = [fields.map(csvCell).join(','), ...rows.map(row => fields.map(field => csvCell(row[field])).join(','))];
-  if (previousUrl) URL.revokeObjectURL(previousUrl);
-  previousUrl = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n') + '\r\n'], {type:'text/csv;charset=utf-8'}));
-  const link = document.querySelector('#download-previous'); link.href = previousUrl; link.download = 'previous-collection-posts.csv';
-  if (previousJsonUrl) URL.revokeObjectURL(previousJsonUrl);
-  previousJsonUrl = URL.createObjectURL(new Blob([JSON.stringify(previous)], {type:'application/json'}));
-  const progress = document.querySelector('#download-previous-progress'); progress.href = previousJsonUrl; progress.download = 'previous-collection-progress.json';
-  if (previous.sheet?.id) {
-    const sheet = document.querySelector('#open-previous'); sheet.href = 'https://docs.google.com/spreadsheets/d/' + previous.sheet.id + '/edit'; sheet.hidden = false;
-  }
-}
 (async () => {
   try {
-    const [config, saved, archived] = await Promise.all([
-      fetch('/api/index', {signal:AbortSignal.timeout(15000)}).then(response => {
-        if (!response.ok) throw new Error('Cannot load server configuration. Refresh to retry.'); return response.json();
-      }), CollectionStore.load(), CollectionStore.loadPrevious()]);
+    const response = await fetch('/api/index', {signal:AbortSignal.timeout(15000)});
+    if (!response.ok) throw new Error('Cannot load server configuration. Refresh to retry.');
+    const config = await response.json();
     TwittSheets.setClientId(config.google_client_id);
     document.querySelector('#connection').textContent = config.configured ? '● API token configured' : '○ API token needed';
-    showPrevious(archived);
-    if (saved?.version === 1) {
-      const selected = saved.slots.filter(slot => slot.month);
-      if (selected.length === 1) {
-        const {slots, ...settings} = saved;
-        collection = {...settings, ...selected[0], version:2}; await CollectionStore.save(collection);
-      } else {
-        await CollectionStore.savePrevious(saved); showPrevious(saved);
-        titleInput.value = saved.title; queryInput.value = saved.query; postLimit.value = String(saved.limit);
-        monthInput.value = selected[0]?.month || current;
-        status.textContent = 'Your previous multi-month collection is preserved under Previous multi-month collection. Start a new one-month search when ready.';
-      }
-    } else if (saved?.version === 2) collection = saved;
-    else if (saved) throw new Error('Unsupported saved search format. Existing data was not overwritten.');
-    if (collection) {
-      titleInput.value = collection.title; queryInput.value = collection.query; postLimit.value = String(collection.limit); monthInput.value = collection.month;
-      if (['searching','saving'].includes(collection.status)) { collection.status = 'error'; collection.error = 'Interrupted. Retry to resume.'; }
-      refreshResults(); status.textContent = `Restored “${collection.title}” for ${collection.month}.`;
-    } else if (!saved && !config.configured) status.textContent = 'Configure X_BEARER_TOKEN in Vercel and redeploy before searching.';
+    if (!config.configured) status.textContent = 'Configure X_BEARER_TOKEN in Vercel and redeploy before searching.';
     initialized = true; render();
   } catch (error) { status.textContent = error.message; status.classList.add('error'); }
 })();
