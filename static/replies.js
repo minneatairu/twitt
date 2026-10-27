@@ -73,6 +73,33 @@
     });
     return {headers, posts};
   }
+  function reportedReplies(post, headers) {
+    const index = headers.findIndex(value => value.trim().toLowerCase() === 'replies');
+    const value = index < 0 ? '' : post.values[index].trim();
+    if (!/^\d+$/.test(value)) return null;
+    const count = Number(value);
+    return Number.isSafeInteger(count) ? count : null;
+  }
+  function skipped(post, job) {
+    return job.skipZeroReplies === true && reportedReplies(post, job.headers) === 0;
+  }
+  function searchThreads(job) {
+    const eligible = new Set(job.posts.filter(post => !skipped(post, job)).map(post => post.conversationId));
+    return job.threads.filter(thread => eligible.has(thread.id));
+  }
+  function workload(job) {
+    const counts = job.posts.map(post => reportedReplies(post, job.headers));
+    const total = counts.reduce((sum, value) => sum + BigInt(value ?? 0), 0n);
+    const zeros = counts.filter(value => value === 0).length;
+    const positive = counts.filter(value => value > 0).length;
+    const unknown = counts.filter(value => value === null).length;
+    const collected = job.threads.reduce((sum, thread) => sum + thread.replies.length, 0);
+    const unfinished = job.batches.filter(item => !item.complete).length;
+    return `${job.posts.length} posts · ${positive} with reported replies · ${zeros} with zero · ${unknown} with unknown counts. Reported replies total: ${total}${unknown ? ' (known counts only)' : ''}. ` +
+      `${job.skipZeroReplies ? zeros : 0} posts skipped because their uploaded reply count is zero. ` +
+      `${job.batches.length} search batches · minimum ${unfinished} more API calls · ${job.attempts} calls attempted · ${collected} direct replies collected. ` +
+      `Each call requests up to ${job.pageSize} results across a batch. Exact calls are unknown until X finishes pagination; other thread replies and failed attempts can add calls. Counts reflect CSV collection time, not guaranteed accessible English replies in this date window.`;
+  }
   function makeThreads(posts) {
     return [...new Set(posts.map(post => post.conversationId))].map(id => ({id, cursor: null, seenTokens: [],
       complete: false, pages: 0, scanned: 0, replies: [], error: null}));
@@ -112,6 +139,9 @@
     if (!input || input.kind !== 'twitt-replies' || ![1,2].includes(input.version) || !Array.isArray(input.headers) ||
         !Array.isArray(input.posts) || !Array.isArray(input.threads) || !windowValid(input.window) || ![10,100,500].includes(input.pageSize)) throw new Error('Unsupported or invalid replies checkpoint.');
     const table = selectedTable([input.headers, ...input.posts.map(post => post.values)]);
+    if (input.skipZeroReplies !== undefined && typeof input.skipZeroReplies !== 'boolean') throw new Error('Invalid zero-reply policy.');
+    if (input.version === 1 && input.skipZeroReplies === true) throw new Error('Legacy checkpoints cannot change their search policy.');
+    const policy = {skipZeroReplies: input.skipZeroReplies === true, ...table};
     const expected = makeThreads(table.posts);
     if (expected.length !== input.threads.length) throw new Error('Checkpoint conversations do not match its selected posts.');
     const byId = new Map(table.posts.map(post => [post.id, post]));
@@ -137,6 +167,8 @@
         pages: saved.pages, scanned: saved.scanned, replies,
         error: saved.error && typeof saved.error.code === 'string' ? {code: saved.error.code, message: String(saved.error.message || '')} : null};
     });
+    const eligibleThreads = searchThreads({...policy, threads});
+    if (threads.some(thread => thread.replies.some(reply => skipped(byId.get(reply.parent_post_id), policy)))) throw new Error('Checkpoint contains replies for skipped posts.');
     let batches;
     if (input.version === 1) {
       // Preserve every started query/cursor exactly; only untouched conversations may be regrouped.
@@ -145,9 +177,9 @@
         complete:thread.complete, pages:thread.pages, scanned:thread.scanned, error:thread.error}));
       batches.push(...makeBatches(threads.filter(thread => !started.includes(thread))));
     } else {
-      if (!Array.isArray(input.batches) || !input.batches.length || input.batches.length > threads.length) throw new Error('Checkpoint is missing its exact search batches.');
+      if (!Array.isArray(input.batches) || input.batches.length > eligibleThreads.length) throw new Error('Checkpoint is missing its exact search batches.');
       const claimed = new Set();
-      const byConversation = new Map(threads.map(thread => [thread.id, thread]));
+      const byConversation = new Map(eligibleThreads.map(thread => [thread.id, thread]));
       batches = input.batches.map(saved => {
         if (!saved || !Array.isArray(saved.ids) || !saved.ids.length || !saved.ids.every(isId) ||
             batchQuery(saved.ids).length > 1024 || new Set(saved.ids).size !== saved.ids.length) throw new Error('Invalid conversation batch in checkpoint.');
@@ -161,7 +193,7 @@
         return batch(saved.ids, {cursor:saved.cursor, seenTokens:[...saved.seenTokens], complete:saved.complete,
           pages:saved.pages, scanned:saved.scanned, error:saved.error ? {code:String(saved.error.code), message:String(saved.error.message || '')} : null});
       });
-      if (claimed.size !== threads.length) throw new Error('Checkpoint batches do not cover every conversation.');
+      if (claimed.size !== eligibleThreads.length) throw new Error('Checkpoint batches do not cover every conversation.');
     }
     for (const item of batches) for (const id of item.ids) {
       Object.assign(threads.find(thread => thread.id === id), {cursor:item.cursor, seenTokens:[...item.seenTokens],
@@ -169,10 +201,10 @@
     }
     let prefix = 'reply_';
     while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
-    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix,
+    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, skipZeroReplies: policy.skipZeroReplies,
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
-      retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: threads.every(thread => thread.complete) ? 'complete' : 'paused',
+      retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: batches.every(thread => thread.complete) ? 'complete' : 'paused',
       message: 'Checkpoint restored. Review progress, then click Start / resume when ready.'};
   }
   async function save() {
@@ -181,6 +213,7 @@
     await CollectionStore.saveReplies(state);
   }
   function postStatus(post, thread) {
+    if (skipped(post, state)) return 'skipped_zero_reported_replies';
     const count = thread.replies.filter(reply => reply.parent_post_id === post.id).length;
     if (thread.complete) return count ? 'complete' : 'complete_no_replies';
     if (thread.error) return count ? 'failed_partial' : 'failed';
@@ -189,18 +222,18 @@
   }
   function render() {
     q('reply-controls').hidden = !state;
-    run.disabled = !ready || running || initialBusy || !state || state.threads.every(thread => thread.complete);
+    run.disabled = !ready || running || initialBusy || !state || state.batches.every(thread => thread.complete);
     pause.disabled = !running;
     q('clear-replies').disabled = running || !ready;
-    [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume')].forEach(input => { input.disabled = running || !ready; });
+    [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || !ready;
-    if (state) q('reply-plan').textContent = `${state.posts.length} selected posts · ${state.threads.length} conversations · ${state.batches.length} search batch(es), ${state.batches.filter(item => !item.complete).length} unfinished. Each unfinished batch needs at least one call; extra pages and failed attempts can add calls. Each call requests up to ${state.pageSize} results across the whole batch, not per post.`;
+    if (state) q('reply-plan').textContent = workload(state);
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
     q('restart-reply-cursor').hidden = !state?.batches.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
     q('restart-reply-cursor').disabled = running;
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const label of ['Selected post', 'Direct replies', 'Shared batch pages', 'Status', 'Preview']) {
+    for (const label of ['Selected post', 'Reported replies (CSV)', 'Direct replies collected', 'Shared batch pages', 'Status', 'Preview']) {
       const th = document.createElement('th'); th.textContent = label; head.append(th);
     }
     const body = table.createTBody();
@@ -208,7 +241,7 @@
       const thread = state.threads.find(item => item.id === post.conversationId);
       const row = body.insertRow();
       const count = thread.replies.filter(reply => reply.parent_post_id === post.id).length;
-      for (const value of [post.id, count, thread.pages, postStatus(post, thread)]) row.insertCell().textContent = value;
+      for (const value of [post.id, reportedReplies(post, state.headers) ?? 'unknown', count, thread.pages, postStatus(post, thread)]) row.insertCell().textContent = value;
       const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary'; button.textContent = 'View';
       button.addEventListener('click', () => { previewId = post.id; preview(); }); row.insertCell().append(button);
     }
@@ -279,10 +312,11 @@
         let prefix = 'reply_';
         while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
         const threads = makeThreads(table.posts);
-        const batches = makeBatches(threads);
+        const skipZeroReplies = q('skip-zero-replies').checked;
+        const batches = makeBatches(searchThreads({...table, threads, skipZeroReplies}));
         const next = {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table,
-          threads, batches, prefix, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
-          retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.`};
+          threads, batches, prefix, skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
+          retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.${batches.length ? '' : ' All posts were explicitly skipped; no searches are needed.'}`};
         await CollectionStore.saveReplies(next); state = next; previewId = null;
         status.classList.remove('error'); render();
       });
@@ -297,7 +331,7 @@
         const existing = await CollectionStore.loadReplies();
         if ((state || existing) && !confirm('Replace this browser’s active replies job with the imported checkpoint?')) return;
         await CollectionStore.saveReplies(next); state = next; previewId = null;
-        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize);
+        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize); q('skip-zero-replies').checked = state.skipZeroReplies;
         status.classList.remove('error'); render();
       });
     } catch (error) { showError(error); }
@@ -312,7 +346,7 @@
         source.value = ''; checkpointFile.value = '';
         start.value = '2006-03-21'; end.value = today;
         q('reply-page-size').value = '500'; q('reply-budget').value = '1';
-        q('reply-auto-resume').checked = true;
+        q('reply-auto-resume').checked = true; q('skip-zero-replies').checked = false;
         q('reply-plan').textContent = ''; q('reply-preview').replaceChildren();
         status.classList.remove('error');
         status.textContent = 'Replies job cleared. Import a CSV to start a new job. No API calls have been made.';
@@ -378,7 +412,7 @@
           thread.error = {code:'repeated_cursor', message:'X repeated a pagination cursor. Paused without claiming completion.'};
           state.status = 'paused_error'; state.message = thread.error.message; break;
         }
-        const selected = new Map(state.posts.filter(post => thread.ids.includes(post.conversationId)).map(post => [post.id,post]));
+        const selected = new Map(state.posts.filter(post => !skipped(post, state) && thread.ids.includes(post.conversationId)).map(post => [post.id,post]));
         const byConversation = new Map(members.map(item => [item.id,item]));
         const seen = new Set(members.flatMap(item => item.replies.map(reply => reply.id)));
         for (const row of payload.rows) {
@@ -397,7 +431,7 @@
         if (!stop) await sleep(1100);
       }
       if (stop) {
-        const complete = state.threads.every(thread => thread.complete);
+        const complete = state.batches.every(thread => thread.complete);
         state.status = complete ? 'complete' : 'paused';
         state.message = complete ? 'Reply collection complete for every search batch in the fixed date window.' : 'Paused by you. Replies and cursor retained; resume when ready.';
       }
@@ -463,7 +497,7 @@
         // Revalidate persisted files just as imported files; never resume paid calls on load.
         state = validateCheckpoint(saved); state.id = saved.id;
         state.retryAt = Number.isFinite(saved.retryAt) ? saved.retryAt : null;
-        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize);
+        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize); q('skip-zero-replies').checked = state.skipZeroReplies;
         render();
       }
     } catch (error) { showError(error); }
