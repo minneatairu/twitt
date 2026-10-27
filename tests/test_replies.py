@@ -31,7 +31,9 @@ class ReplySearchTests(unittest.TestCase):
         self.assertEqual(params['start_time'], self.data()['start_time'])
         self.assertEqual(params['end_time'], self.data()['end_time'])
         self.assertEqual([row['parent_post_id'] for row in result['rows']], ['100', '200'])
-        self.assertEqual(result['next_token'], 'next-cursor')
+        self.assertEqual(result['next_token'], 'saved-cursor')
+        self.assertTrue(result['incomplete'])
+        self.assertEqual(result['unresolved_count'], 2)
         self.assertEqual(result['scanned_count'], 5)
 
     def test_reject_invalid_ids_windows_and_page_sizes(self):
@@ -60,12 +62,32 @@ class ReplySearchTests(unittest.TestCase):
                 app.replies_page(self.data(conversation_ids=ids), fetch=lambda _: self.fail('Invalid batch reached X'))
 
     def test_partial_response_is_not_successful(self):
-        with self.assertRaisesRegex(ValueError, 'X details: Unavailable.*cursor was not advanced'):
-            app.replies_page(self.data(), fetch=lambda _: {'data': [], 'errors': [{'title': 'Unavailable'}]})
+        result = app.replies_page(self.data(next_token='saved'), fetch=lambda _: {'data': [], 'errors': [{'title': 'Unavailable'}]})
+        self.assertTrue(result['incomplete'])
+        self.assertEqual(result['next_token'], 'saved')
+        self.assertIn('Unavailable', result['warning'])
 
     def test_malformed_success_does_not_claim_exhaustion(self):
-        with self.assertRaisesRegex(ValueError, 'omitted pagination metadata'):
-            app.replies_page(self.data(), fetch=lambda _: {})
+        result = app.replies_page(self.data(), fetch=lambda _: {})
+        self.assertTrue(result['incomplete'])
+        self.assertIn('omitted pagination metadata', result['warning'])
+
+    def test_hydration_failure_preserves_verifiable_rows_and_cursor(self):
+        good = {'id':'501', 'lang':'en', 'conversation_id':'100',
+                'referenced_tweets':[{'type':'replied_to', 'id':'100'}]}
+        payload = {'data':[good, {'id':'502', 'lang':'en', 'conversation_id':'100'}],
+                   'meta':{'next_token':'unsafe-next'},
+                   'errors':[{'title':'Field Hydration Error', 'detail':'referenced_tweets incomplete'}]}
+        result = app.replies_page(self.data(next_token='saved'), fetch=lambda _: payload)
+        self.assertEqual([row['id'] for row in result['rows']], ['501'])
+        self.assertTrue(result['incomplete'])
+        self.assertEqual(result['unresolved_count'], 1)
+        self.assertEqual(result['next_token'], 'saved')
+        payload['data'] = [good]
+        result = app.replies_page(self.data(), fetch=lambda _: payload)
+        self.assertFalse(result['incomplete'])
+        self.assertEqual(result['next_token'], 'unsafe-next')
+        self.assertIn('referenced_tweets incomplete', result['warning'])
 
     def test_rate_limit_carries_reset_time(self):
         reset = time.time() + 120

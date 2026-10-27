@@ -408,7 +408,7 @@
         }
         if (!Array.isArray(payload.rows) || (payload.next_token != null && (typeof payload.next_token !== 'string' || !payload.next_token || payload.next_token.length > 4096))) throw new Error('Invalid reply page. Cursor was not advanced.');
         const cursor = payload.next_token || null;
-        if (cursor && thread.seenTokens.includes(cursor)) {
+        if (!payload.incomplete && cursor && thread.seenTokens.includes(cursor)) {
           thread.error = {code:'repeated_cursor', message:'X repeated a pagination cursor. Paused without claiming completion.'};
           state.status = 'paused_error'; state.message = thread.error.message; break;
         }
@@ -421,11 +421,17 @@
           if (!member || !parent || parent.conversationId !== row.conversation_id || !isId(row.id) || seen.has(row.id)) continue;
           member.replies.push(Object.fromEntries(replyFields.map(field => [field, row[field] ?? '']))); seen.add(row.id);
         }
+        if (payload.incomplete) {
+          thread.error = {code:'incomplete_page', message:`X returned an incomplete page: ${Number.isSafeInteger(payload.unresolved_count) ? payload.unresolved_count : 'unknown'} returned posts could not be verified. ${payload.warning || ''}`};
+          state.status = 'paused_incomplete';
+          state.message = `${thread.error.message} Verified replies have been saved (${members.reduce((count,item) => count + item.replies.length,0)} matched replies retained in this batch). The cursor has not advanced and this batch is not complete. Resume retries this page with deduplication and may use additional allowance.`;
+          await save(); render(); break;
+        }
         thread.pages++; thread.scanned += Number.isSafeInteger(payload.scanned_count) ? payload.scanned_count : payload.rows.length;
         for (const member of members) member.scanned += payload.rows.filter(row => row.conversation_id === member.id).length;
         thread.cursor = cursor; if (cursor) thread.seenTokens.push(cursor);
         thread.complete = !cursor; thread.error = null;
-        state.message = `Saved page ${thread.pages} for this batch; ${members.reduce((count,item) => count + item.replies.length,0)} direct replies matched your selected posts.`;
+        state.message = `Saved page ${thread.pages} for this batch; ${members.reduce((count,item) => count + item.replies.length,0)} direct replies matched your selected posts.${payload.warning ? ' X metadata warning: ' + payload.warning : ''}`;
         // Persist the data and cursor together before another request can run.
         await save(); render();
         if (!stop) await sleep(1100);

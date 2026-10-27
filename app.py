@@ -284,37 +284,49 @@ def replies_page(data, fetch=None):
     if token:
         params['next_token'] = token
     payload = (fetch or request_page)(params)
-    if not isinstance(payload, dict) or payload.get('errors') or not isinstance(payload.get('meta'), dict):
-        reasons = []
-        if isinstance(payload, dict):
-            errors = payload.get('errors', [])
-            if isinstance(errors, list):
-                for error in errors[:3]:
-                    if isinstance(error, dict):
-                        # Forward bounded diagnostic fields, never the full upstream response.
-                        detail = ': '.join(str(error[key])[:400] for key in ('title', 'detail', 'message') if error.get(key))
-                        if detail:
-                            reasons.append(detail)
-            if not isinstance(payload.get('meta'), dict):
-                reasons.append('X omitted pagination metadata; completion cannot be verified')
-        else:
-            reasons.append('X returned an unexpected response format')
-        diagnostic = ' X details: ' + '; '.join(reasons) + '.' if reasons else ''
-        raise ValueError('X returned an incomplete reply page.' + diagnostic + ' The saved cursor was not advanced. Previously saved replies are unchanged; this page was not accepted. Retrying may use additional API allowance.')
+    if not isinstance(payload, dict) or not isinstance(payload.get('data', []), list):
+        raise ValueError('X returned an invalid reply response. The saved cursor was not advanced.')
+    reasons = []
+    errors = payload.get('errors', [])
+    if not isinstance(errors, list):
+        raise ValueError('X returned invalid reply errors. The saved cursor was not advanced.')
+    for error in errors[:3]:
+        if isinstance(error, dict):
+            detail = ': '.join(str(error[key])[:400] for key in ('title', 'detail', 'message') if error.get(key))
+            if detail:
+                reasons.append(detail)
+    has_meta = isinstance(payload.get('meta'), dict)
+    if not has_meta:
+        reasons.append('X omitted pagination metadata; completion cannot be verified')
+    # Hydration warnings can coexist with usable posts. Only advance when every
+    # returned post has the fields required to verify its direct parent.
+    hydration_only = bool(errors) and all(isinstance(error, dict) and error.get('title') == 'Field Hydration Error' for error in errors)
+    incomplete = not has_meta or bool(errors) and (not hydration_only or not payload.get('data'))
+    unresolved = 0
     users = {user['id']: user for user in payload.get('includes', {}).get('users', [])}
     media = {item['media_key']: item for item in payload.get('includes', {}).get('media', [])}
     rows = []
     for post in payload.get('data', []):
-        if post.get('lang') != 'en' or post.get('conversation_id') not in conversation_set:
+        if not isinstance(post, dict) or not isinstance(post.get('lang'), str) or post.get('conversation_id') not in conversation_set:
+            unresolved += 1
             continue
-        parent = next((ref.get('id') for ref in post.get('referenced_tweets', []) if ref.get('type') == 'replied_to'), None)
-        if not isinstance(parent, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', parent):
+        if post['lang'] != 'en':
+            continue
+        references = post.get('referenced_tweets', [])
+        parent = next((ref.get('id') for ref in references if isinstance(ref, dict) and ref.get('type') == 'replied_to'), None) if isinstance(references, list) else None
+        if not isinstance(parent, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', parent) or not isinstance(post.get('id'), str) or not re.fullmatch(r'[1-9][0-9]{0,24}', post['id']):
+            unresolved += 1
             continue
         row = to_row(post, users, '', media)
         row['parent_post_id'] = parent
         rows.append(row)
-    return {'rows': rows, 'next_token': payload.get('meta', {}).get('next_token'),
-            'scanned_count': len(payload.get('data', []))}
+    incomplete = incomplete or unresolved > 0
+    if incomplete and not reasons:
+        reasons.append('Some returned posts lack a verifiable language, conversation, or reply parent')
+    return {'rows': rows, 'next_token': token if incomplete else payload['meta'].get('next_token'),
+            'scanned_count': len(payload.get('data', [])), 'incomplete': incomplete,
+            'unresolved_count': unresolved, 'warning': '; '.join(reasons)}
+
 
 
 class Handler(BaseHTTPRequestHandler):
