@@ -105,7 +105,7 @@
       order.splice(order.indexOf(replyText), 1);
       order.splice(textColumn + 1, 0, replyText);
     }
-    const visibleOrder = order.filter(index => !['collection_title','month','hashtag','hashtags'].includes(headers[index].trim().toLowerCase()));
+    const visibleOrder = order.filter(index => !['referenced_posts','in_reply_to_user_id','mentions','author_id','collection_title','month','hashtag','hashtags'].includes(headers[index].trim().toLowerCase()));
     const rows = [visibleOrder.map(index => headers[index])];
     const selectedById = new Map(state.posts.map(post => [post.id, post]));
     const seen = new Set();

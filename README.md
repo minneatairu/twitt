@@ -148,3 +148,5 @@ Exports omit `month` and `hashtags` columns. Combined reply exports also omit an
 Reply export columns are now limited to reply URL and text, beside the related uploaded tweet columns. Reply timestamps, author ID/username, conversation/parent IDs and the selected-post ID list remain internal/checkpoint metadata and are omitted from CSV and Google Sheets.
 
 `collection_title` is omitted from CSV and new spreadsheet export columns; the title still names the search and exported files.
+
+Exports also omit `referenced_posts`, `in_reply_to_user_id`, `mentions`, and `author_id`. Internal matching data and checkpoints remain unchanged.
