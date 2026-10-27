@@ -99,6 +99,10 @@ with sync_playwright() as p:
     assert '3 selected posts in 2 conversations, grouped into 1 search batch' in page.locator('#reply-status').inner_text()
     assert page.locator('#reply-page-size').input_value()=='500'
     assert '1 search batch' in page.locator('#reply-plan').inner_text()
+    # Keep this regression exercising legacy direct-only checkpoint behavior.
+    page.evaluate("async () => { const s=await CollectionStore.loadReplies(); s.scope='direct'; await CollectionStore.saveReplies(s); }")
+    page.reload()
+    page.wait_for_function('() => !document.querySelector("#run-replies").disabled')
     page.select_option('#reply-budget','1')
     page.click('#run-replies')
     page.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Paused after 1 API calls")')
@@ -215,6 +219,9 @@ with sync_playwright() as p:
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Imported 3 selected")')
     assert len(calls)==before
     assert '1 search batch' in other.locator('#reply-plan').inner_text()
+    other.evaluate("async () => { const s=await CollectionStore.loadReplies(); s.scope='direct'; await CollectionStore.saveReplies(s); }")
+    other.reload()
+    other.wait_for_function('() => !document.querySelector("#run-replies").disabled')
     other.click('#run-replies')
     other.wait_for_function('() => document.querySelector("#reply-status").textContent.includes("Reply collection complete")')
     assert len(calls)==before+1

@@ -89,6 +89,21 @@ class ReplySearchTests(unittest.TestCase):
         self.assertEqual(result['next_token'], 'unsafe-next')
         self.assertIn('referenced_tweets incomplete', result['warning'])
 
+    def test_conversation_scope_accepts_nested_replies_without_parent_metadata(self):
+        payload = {'data':[
+            {'id':'501', 'conversation_id':'100', 'lang':'en', 'referenced_tweets':[{'type':'replied_to','id':'999'}]},
+            {'id':'502', 'conversation_id':'100'},
+            {'id':'503', 'conversation_id':'100', 'lang':'es'}],
+            'meta':{'next_token':'next'}, 'errors':[{'title':'Field Hydration Error','detail':'references missing'}]}
+        with patch('app.request_page', return_value=payload) as fetch:
+            result = app.replies_page(self.data(scope='conversation'))
+        self.assertFalse(result['incomplete'])
+        self.assertEqual(result['next_token'], 'next')
+        self.assertEqual([row['id'] for row in result['rows']], ['501','502'])
+        self.assertEqual([row['parent_post_id'] for row in result['rows']], ['999',''])
+        self.assertNotIn('in_reply_to_user_id', fetch.call_args.args[0]['tweet.fields'])
+        self.assertTrue(all(row['post_type'] == 'reply' for row in result['rows']))
+
     def test_rate_limit_carries_reset_time(self):
         reset = time.time() + 120
         error = HTTPError(app.API, 429, 'limited', {'x-rate-limit-reset': str(reset)}, io.BytesIO(b'{"title":"Too Many Requests"}'))

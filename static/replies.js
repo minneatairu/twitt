@@ -87,6 +87,10 @@
     const eligible = new Set(job.posts.filter(post => !skipped(post, job)).map(post => post.conversationId));
     return job.threads.filter(thread => eligible.has(thread.id));
   }
+  function repliesFor(post, thread) {
+    if (skipped(post, state)) return [];
+    return state.scope === 'conversation' ? thread.replies : thread.replies.filter(reply => reply.parent_post_id === post.id);
+  }
   function workload(job) {
     const counts = job.posts.map(post => reportedReplies(post, job.headers));
     const total = counts.reduce((sum, value) => sum + BigInt(value ?? 0), 0n);
@@ -97,8 +101,8 @@
     const unfinished = job.batches.filter(item => !item.complete).length;
     return `${job.posts.length} posts · ${positive} with reported replies · ${zeros} with zero · ${unknown} with unknown counts. Reported replies total: ${total}${unknown ? ' (known counts only)' : ''}. ` +
       `${job.skipZeroReplies ? zeros : 0} posts skipped because their uploaded reply count is zero. ` +
-      `${job.batches.length} search batches · minimum ${unfinished} more API calls · ${job.attempts} calls attempted · ${collected} direct replies collected. ` +
-      `Each call requests up to ${job.pageSize} results across a batch. Exact calls are unknown until X finishes pagination; other thread replies and failed attempts can add calls. Counts reflect CSV collection time, not guaranteed accessible English replies in this date window.`;
+      `${job.batches.length} search batches · minimum ${unfinished} more API calls · ${job.attempts} calls attempted · ${collected} unique replies collected (${job.scope === 'conversation' ? 'whole conversations' : 'legacy direct replies'}). ` +
+      `Each call requests up to ${job.pageSize} results across a batch. Exact calls are unknown until X finishes pagination; other thread replies and failed attempts can add calls. CSV counts are direct-reply counts at collection time; whole-conversation results may exceed them. Unknown language is accepted using X’s lang:en search filter. Only conversation membership is required for matching in whole-conversation mode.`;
   }
   function makeThreads(posts) {
     return [...new Set(posts.map(post => post.conversationId))].map(id => ({id, cursor: null, seenTokens: [],
@@ -141,6 +145,8 @@
     const table = selectedTable([input.headers, ...input.posts.map(post => post.values)]);
     if (input.skipZeroReplies !== undefined && typeof input.skipZeroReplies !== 'boolean') throw new Error('Invalid zero-reply policy.');
     if (input.version === 1 && input.skipZeroReplies === true) throw new Error('Legacy checkpoints cannot change their search policy.');
+    if (input.scope !== undefined && !['direct','conversation'].includes(input.scope)) throw new Error('Invalid reply scope.');
+    const scope = input.scope || 'direct';
     const policy = {skipZeroReplies: input.skipZeroReplies === true, ...table};
     const expected = makeThreads(table.posts);
     if (expected.length !== input.threads.length) throw new Error('Checkpoint conversations do not match its selected posts.');
@@ -154,8 +160,8 @@
           !Number.isSafeInteger(saved.scanned) || saved.scanned < 0 || !Array.isArray(saved.replies) || saved.replies.length > 200000) throw new Error('Invalid conversation progress in checkpoint.');
       const seen = new Set();
       const replies = saved.replies.map(reply => {
-        if (!reply || !isId(reply.id) || seen.has(reply.id) || !byId.has(reply.parent_post_id) ||
-            byId.get(reply.parent_post_id).conversationId !== thread.id || reply.conversation_id !== thread.id) throw new Error('Invalid or duplicate reply-to-post relationship in checkpoint.');
+        if (!reply || !isId(reply.id) || seen.has(reply.id) || reply.conversation_id !== thread.id ||
+            (scope === 'direct' ? (!byId.has(reply.parent_post_id) || byId.get(reply.parent_post_id).conversationId !== thread.id) : (reply.parent_post_id !== '' && !isId(reply.parent_post_id)))) throw new Error('Invalid or duplicate reply-to-post relationship in checkpoint.');
         seen.add(reply.id);
         return Object.fromEntries(replyFields.map(field => {
           const value = reply[field] ?? '';
@@ -168,7 +174,7 @@
         error: saved.error && typeof saved.error.code === 'string' ? {code: saved.error.code, message: String(saved.error.message || '')} : null};
     });
     const eligibleThreads = searchThreads({...policy, threads});
-    if (threads.some(thread => thread.replies.some(reply => skipped(byId.get(reply.parent_post_id), policy)))) throw new Error('Checkpoint contains replies for skipped posts.');
+    if (scope === 'direct' && threads.some(thread => thread.replies.some(reply => skipped(byId.get(reply.parent_post_id), policy)))) throw new Error('Checkpoint contains replies for skipped posts.');
     let batches;
     if (input.version === 1) {
       // Preserve every started query/cursor exactly; only untouched conversations may be regrouped.
@@ -201,7 +207,7 @@
     }
     let prefix = 'reply_';
     while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
-    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, skipZeroReplies: policy.skipZeroReplies,
+    return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, scope, skipZeroReplies: policy.skipZeroReplies,
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
       retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: batches.every(thread => thread.complete) ? 'complete' : 'paused',
@@ -214,16 +220,19 @@
   }
   function postStatus(post, thread) {
     if (skipped(post, state)) return 'skipped_zero_reported_replies';
-    const count = thread.replies.filter(reply => reply.parent_post_id === post.id).length;
+    const count = repliesFor(post, thread).length;
     if (thread.complete) return count ? 'complete' : 'complete_no_replies';
+    if (thread.error?.code === 'incomplete_page') return 'paused_incomplete';
     if (thread.error) return count ? 'failed_partial' : 'failed';
-    if (!thread.pages) return 'not_searched';
+    if (!thread.pages && !count) return 'not_searched';
     return state.status.startsWith('paused') ? state.status : 'partial';
   }
   function render() {
     q('reply-controls').hidden = !state;
     run.disabled = !ready || running || initialBusy || !state || state.batches.every(thread => thread.complete);
     pause.disabled = !running;
+    q('convert-conversation').hidden = !state || state.scope === 'conversation';
+    q('convert-conversation').disabled = running || !ready;
     q('clear-replies').disabled = running || !ready;
     [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || !ready;
@@ -233,14 +242,14 @@
     q('restart-reply-cursor').disabled = running;
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const label of ['Selected post', 'Reported replies (CSV)', 'Direct replies collected', 'Shared batch pages', 'Status', 'Preview']) {
+    for (const label of ['Selected post', 'Reported replies (CSV)', 'Replies collected (shared conversation)', 'Shared batch pages', 'Status', 'Preview']) {
       const th = document.createElement('th'); th.textContent = label; head.append(th);
     }
     const body = table.createTBody();
     for (const post of state?.posts || []) {
       const thread = state.threads.find(item => item.id === post.conversationId);
       const row = body.insertRow();
-      const count = thread.replies.filter(reply => reply.parent_post_id === post.id).length;
+      const count = repliesFor(post, thread).length;
       for (const value of [post.id, reportedReplies(post, state.headers) ?? 'unknown', count, thread.pages, postStatus(post, thread)]) row.insertCell().textContent = value;
       const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary'; button.textContent = 'View';
       button.addEventListener('click', () => { previewId = post.id; preview(); }); row.insertCell().append(button);
@@ -252,8 +261,8 @@
     const container = q('reply-preview'); container.replaceChildren();
     const post = state?.posts.find(item => item.id === previewId);
     if (!post) return;
-    const replies = state.threads.find(thread => thread.id === post.conversationId).replies.filter(reply => reply.parent_post_id === post.id);
-    const heading = document.createElement('h3'); heading.textContent = `Direct replies to ${post.id} (${replies.length} collected)`; container.append(heading);
+    const replies = repliesFor(post, state.threads.find(thread => thread.id === post.conversationId));
+    const heading = document.createElement('h3'); heading.textContent = `Replies ${state.scope === 'conversation' ? 'in conversation ' + post.conversationId : 'directly to ' + post.id} (${replies.length} collected)`; container.append(heading);
     let shown = 0;
     const more = document.createElement('button'); more.type = 'button'; more.className = 'secondary'; more.textContent = 'Show more replies';
     function page() {
@@ -315,7 +324,7 @@
         const skipZeroReplies = q('skip-zero-replies').checked;
         const batches = makeBatches(searchThreads({...table, threads, skipZeroReplies}));
         const next = {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table,
-          threads, batches, prefix, skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
+          threads, batches, prefix, scope:'conversation', skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
           retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.${batches.length ? '' : ' All posts were explicitly skipped; no searches are needed.'}`};
         await CollectionStore.saveReplies(next); state = next; previewId = null;
         status.classList.remove('error'); render();
@@ -336,6 +345,22 @@
       });
     } catch (error) { showError(error); }
     finally { checkpointFile.value = ''; }
+  });
+  q('convert-conversation').addEventListener('click', async () => {
+    if (running || !ready || !state || !confirm('Switch to all replies in each selected conversation? Existing replies are retained. Previously started batches must be searched again from their first page to recover nested replies discarded by the old mode. This prepares the job without API calls; Start / resume uses additional allowance. Download a checkpoint first if you need the original job.')) return;
+    try {
+      await exclusive(async () => {
+        const latest = await CollectionStore.loadReplies();
+        if (!latest || latest.id !== state.id) throw new Error('Job changed in another tab. Refresh first.');
+        state = validateCheckpoint(latest); state.id = latest.id;
+        state.scope = 'conversation'; state.retryAt = null;
+        state.batches = state.batches.map(item => batch(item.ids));
+        for (const thread of state.threads) Object.assign(thread, {cursor:null, seenTokens:[], complete:false, pages:0, scanned:0, error:null});
+        state.status = 'ready';
+        state.message = 'Whole-conversation collection prepared. Saved replies retained and will be deduplicated. Pagination reset to recover previously discarded nested replies. No API calls made by this change; click Start / resume when ready.';
+        await save(); render();
+      });
+    } catch (error) { showError(error); }
   });
   q('clear-replies').addEventListener('click', async () => {
     if (running || !ready || !confirm('Clear the saved replies job and its collected replies from this browser? Download a checkpoint first if you need to keep progress. Original files and Google spreadsheets are unchanged.')) return;
@@ -385,7 +410,7 @@
         let response, payload;
         try {
           response = await fetch('/api/index', {method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({action:'replies', conversation_ids:thread.ids, start_time:state.window.start,
+            body: JSON.stringify({action:'replies', scope:state.scope, conversation_ids:thread.ids, start_time:state.window.start,
               end_time:state.window.end, count:state.pageSize, next_token:thread.cursor}), signal:AbortSignal.timeout(50000)});
           payload = await response.json();
         } catch {
@@ -418,20 +443,20 @@
         for (const row of payload.rows) {
           const member = byConversation.get(row.conversation_id);
           const parent = selected.get(row.parent_post_id);
-          if (!member || !parent || parent.conversationId !== row.conversation_id || !isId(row.id) || seen.has(row.id)) continue;
+          if (!member || (state.scope !== 'conversation' && (!parent || parent.conversationId !== row.conversation_id)) || !isId(row.id) || seen.has(row.id)) continue;
           member.replies.push(Object.fromEntries(replyFields.map(field => [field, row[field] ?? '']))); seen.add(row.id);
         }
         if (payload.incomplete) {
           thread.error = {code:'incomplete_page', message:`X returned an incomplete page: ${Number.isSafeInteger(payload.unresolved_count) ? payload.unresolved_count : 'unknown'} returned posts could not be verified. ${payload.warning || ''}`};
           state.status = 'paused_incomplete';
-          state.message = `${thread.error.message} Verified replies have been saved (${members.reduce((count,item) => count + item.replies.length,0)} matched replies retained in this batch). The cursor has not advanced and this batch is not complete. Resume retries this page with deduplication and may use additional allowance.`;
+          state.message = `${thread.error.message} Verified replies have been saved (${members.reduce((count,item) => count + item.replies.length,0)} replies retained in this batch). The cursor has not advanced and this batch is not complete. Resume retries this page with deduplication and may use additional allowance.`;
           await save(); render(); break;
         }
         thread.pages++; thread.scanned += Number.isSafeInteger(payload.scanned_count) ? payload.scanned_count : payload.rows.length;
         for (const member of members) member.scanned += payload.rows.filter(row => row.conversation_id === member.id).length;
         thread.cursor = cursor; if (cursor) thread.seenTokens.push(cursor);
         thread.complete = !cursor; thread.error = null;
-        state.message = `Saved page ${thread.pages} for this batch; ${members.reduce((count,item) => count + item.replies.length,0)} direct replies matched your selected posts.${payload.warning ? ' X metadata warning: ' + payload.warning : ''}`;
+        state.message = `Saved page ${thread.pages} for this batch; ${members.reduce((count,item) => count + item.replies.length,0)} replies matched the selected conversations.${payload.warning ? ' X metadata warning: ' + payload.warning : ''}`;
         // Persist the data and cursor together before another request can run.
         await save(); render();
         if (!stop) await sleep(1100);
@@ -483,7 +508,7 @@
     const lines = [headers.map(cell).join(',')];
     for (const post of state.posts) {
       const thread = state.threads.find(item => item.id === post.conversationId);
-      const replies = thread.replies.filter(reply => reply.parent_post_id === post.id);
+      const replies = repliesFor(post, thread);
       for (const reply of replies.length ? replies : [null]) {
         const values = [...post.values, ...replyFields.map(field => reply?.[field] ?? ''), postStatus(post, thread),
           String(replies.length), state.window.start, state.window.end];

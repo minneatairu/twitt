@@ -260,6 +260,9 @@ def reply_query(conversations):
 
 
 def replies_page(data, fetch=None):
+    scope = data.get('scope', 'direct')
+    if scope not in ('direct', 'conversation'):
+        raise ValueError('Unsupported replies scope.')
     conversations = data.get('conversation_ids', [data.get('conversation_id')])
     query = reply_query(conversations)
     conversation_set = set(conversations)
@@ -281,6 +284,8 @@ def replies_page(data, fetch=None):
               'sort_order': 'recency', 'expansions': 'author_id,attachments.media_keys',
               'tweet.fields': 'created_at,author_id,lang,public_metrics,entities,conversation_id,in_reply_to_user_id,referenced_tweets,attachments',
               'user.fields': 'username,name', 'media.fields': 'media_key,type,url,preview_image_url,alt_text'}
+    if scope == 'conversation':
+        params['tweet.fields'] = params['tweet.fields'].replace('in_reply_to_user_id,', '')
     if token:
         params['next_token'] = token
     payload = (fetch or request_page)(params)
@@ -307,22 +312,25 @@ def replies_page(data, fetch=None):
     media = {item['media_key']: item for item in payload.get('includes', {}).get('media', [])}
     rows = []
     for post in payload.get('data', []):
-        if not isinstance(post, dict) or not isinstance(post.get('lang'), str) or post.get('conversation_id') not in conversation_set:
+        if not isinstance(post, dict) or (scope == 'direct' and not isinstance(post.get('lang'), str)) or post.get('conversation_id') not in conversation_set:
             unresolved += 1
             continue
-        if post['lang'] != 'en':
+        if post.get('lang') not in (None, '', 'en'):
             continue
         references = post.get('referenced_tweets', [])
         parent = next((ref.get('id') for ref in references if isinstance(ref, dict) and ref.get('type') == 'replied_to'), None) if isinstance(references, list) else None
-        if not isinstance(parent, str) or not re.fullmatch(r'[1-9][0-9]{0,24}', parent) or not isinstance(post.get('id'), str) or not re.fullmatch(r'[1-9][0-9]{0,24}', post['id']):
+        parent_valid = isinstance(parent, str) and re.fullmatch(r'[1-9][0-9]{0,24}', parent)
+        if (scope == 'direct' and not parent_valid) or not isinstance(post.get('id'), str) or not re.fullmatch(r'[1-9][0-9]{0,24}', post['id']):
             unresolved += 1
             continue
         row = to_row(post, users, '', media)
-        row['parent_post_id'] = parent
+        row['parent_post_id'] = parent if parent_valid else ''
+        if scope == 'conversation':
+            row['post_type'] = 'reply' + ('+quote' if 'quote' in row['post_type'] else '')
         rows.append(row)
     incomplete = incomplete or unresolved > 0
     if incomplete and not reasons:
-        reasons.append('Some returned posts lack a verifiable language, conversation, or reply parent')
+        reasons.append('Some returned posts lack required matching metadata')
     return {'rows': rows, 'next_token': token if incomplete else payload['meta'].get('next_token'),
             'scanned_count': len(payload.get('data', [])), 'incomplete': incomplete,
             'unresolved_count': unresolved, 'warning': '; '.join(reasons)}

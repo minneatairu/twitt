@@ -40,7 +40,7 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-plan').textContent.includes('1 calls attempted') && document.getElementById('run-replies').disabled && !document.getElementById('clear-replies').disabled")
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert len(calls) == 1
-    assert [reply['id'] for thread in saved['threads'] for reply in thread['replies']] == ['901','902']
+    assert [reply['id'] for thread in saved['threads'] for reply in thread['replies']] == ['900','901','902']
     assert 'skipped_zero_reported_replies' in page.locator('#reply-summary').inner_text()
     with page.expect_download() as download:
         page.locator('#download-combined').click()
