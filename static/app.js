@@ -55,7 +55,7 @@ function csvCell(value) {
 }
 function makeDownload() {
   if (csvUrl) URL.revokeObjectURL(csvUrl);
-  const exportColumns = columns.filter(column => !['attachments', 'media', 'month', 'hashtags'].includes(column));
+  const exportColumns = columns.filter(column => !['collection_title', 'attachments', 'media', 'month', 'hashtags'].includes(column));
   const lines = [exportColumns.map(csvCell).join(','), ...results.map(row => exportColumns.map(key => csvCell(row[key])).join(','))];
   csvUrl = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], {type: 'text/csv;charset=utf-8'}));
   download.href = csvUrl;

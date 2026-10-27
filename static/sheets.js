@@ -1,6 +1,6 @@
 // No Google tokens are persisted. Each month writes fixed ranges in one shared file.
 (() => {
-  const excluded = new Set(['geo', 'impressions', 'raw_json', 'engagement_score', 'engagement',
+  const excluded = new Set(['collection_title', 'geo', 'impressions', 'raw_json', 'engagement_score', 'engagement',
     'month', 'hashtags', 'hashtag', 'language', 'author_verified', 'author_name', 'author_followers', 'bookmarks', 'attachments', 'media']);
   let clientId = '';
   function authorize() {
@@ -34,7 +34,7 @@
     const requested = columns.filter(column => !excluded.has(column));
     // Keep active spreadsheets on their original schema so later months cannot shift data.
     const legacy = columns.filter(column => column !== 'engagement' && column !== 'post_type' &&
-      (!excluded.has(column) || ['attachments', 'media', 'month', 'hashtags'].includes(column)));
+      (!excluded.has(column) || ['collection_title', 'attachments', 'media', 'month', 'hashtags'].includes(column)));
     const selected = sheet.columns || (sheet.id && sheet.headerWritten ? legacy : requested);
     sheet.columns = selected;
     const values = slot.rows.map(row => selected.map(key => String(key === 'collection_title' ? collection.title : key === 'engagement' || excluded.has(key) ? '' : row[key] ?? '')));
