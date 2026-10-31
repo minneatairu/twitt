@@ -29,6 +29,37 @@
     }
     return response.json();
   }
+  async function drive(path, token, method = 'GET', body) {
+    const response = await fetch('https://www.googleapis.com/drive/v3/files' + path, {
+      method, headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+      ...(body ? {body: JSON.stringify(body)} : {}), signal: AbortSignal.timeout(45000)
+    });
+    if (!response.ok) throw new Error(`Google Drive returned HTTP ${response.status}. Check that Drive API is enabled and retry saving to Twitter Research.`);
+    return response.json();
+  }
+  async function organize(sheet, token) {
+    // Resolve for the currently authorized account; never reuse another account's folder.
+    const query = "name = 'Twitter Research' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners";
+    let pageToken = '', folders = [];
+    do {
+      const params = new URLSearchParams({q: query, fields: 'nextPageToken,files(id)', pageSize: '1000'});
+      if (pageToken) params.set('pageToken', pageToken);
+      const page = await drive('?' + params, token);
+      folders.push(...(page.files || []));
+      pageToken = page.nextPageToken || '';
+    } while (pageToken);
+    // Choose consistently if the account already contains duplicate named folders.
+    folders.sort((a, b) => a.id.localeCompare(b.id));
+    const folder = folders[0] || await drive('', token, 'POST', {
+      name: 'Twitter Research', mimeType: 'application/vnd.google-apps.folder'
+    });
+    if (!/^[A-Za-z0-9_-]+$/.test(folder.id || '')) throw new Error('Google returned an invalid folder ID.');
+    const file = await drive('/' + sheet.id + '?fields=parents', token);
+    if ((file.parents || []).includes(folder.id)) return;
+    const params = new URLSearchParams({addParents: folder.id, fields: 'id'});
+    if (file.parents?.length) params.set('removeParents', file.parents.join(','));
+    await drive('/' + sheet.id + '?' + params, token, 'PATCH', {});
+  }
   async function writeMonth(collection, slot, columns, token, checkpoint, progress) {
     const sheet = collection.sheet;
     const requested = columns.filter(column => !excluded.has(column));
@@ -47,6 +78,7 @@
       sheet.id = created.spreadsheetId;
       await checkpoint();
     }
+    await organize(sheet, token);
     async function put(start, rows) {
       const range = encodeURIComponent("'Posts'!A" + start);
       return request('/' + sheet.id + '/values/' + range + '?valueInputOption=RAW', token, 'PUT', {
@@ -82,12 +114,15 @@
   async function writeTable(title, values, sheet, token, checkpoint, progress) {
     if (!values.length || values.some(row => row.length !== values[0].length || row.some(value => String(value).length > 50000))) throw new Error('The export contains an invalid row or a cell over Google’s 50,000-character limit. Download CSV instead.');
     const properties = {sheetId:0, title:'Replies', gridProperties:{rowCount:Math.max(2, values.length), columnCount:values[0].length, frozenRowCount:1}};
+    const existing = Boolean(sheet.id);
     if (!sheet.id) {
       const created = await request('', token, 'POST', {properties:{title}, sheets:[{properties}]});
       if (!/^[A-Za-z0-9_-]+$/.test(created.spreadsheetId || '')) throw new Error('Google returned an invalid spreadsheet ID.');
       sheet.id = created.spreadsheetId;
       await checkpoint();
-    } else {
+    }
+    await organize(sheet, token);
+    if (existing) {
       await request('/' + sheet.id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties, fields:'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}}, {updateCells:{range:{sheetId:0}, fields:'userEnteredValue'}}]});
     }
     for (let offset=0; offset<values.length;) {

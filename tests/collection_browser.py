@@ -36,6 +36,13 @@ with sync_playwright() as p:
         page.on('dialog',lambda dialog:dialog.accept())
         page.route('**/api/index',api)
         page.route('https://sheets.googleapis.com/**',google)
+        def drive(route):
+            if route.request.method == 'PATCH':
+                return route.fulfill(json={'id':'single-sheet'})
+            if '/files?' in route.request.url:
+                return route.fulfill(json={'files':[{'id':'research-folder'}]})
+            return route.fulfill(json={'parents':['research-folder']})
+        page.route('https://www.googleapis.com/drive/v3/files**',drive)
         page.route('https://accounts.google.com/gsi/client',lambda route:route.fulfill(content_type='application/javascript',body='''
         window.google={accounts:{oauth2:{initTokenClient(c){return {requestAccessToken(){c.callback(window.denyGoogle?{error:'denied'}:{access_token:'test-only-token'});}};}}}};
         '''))

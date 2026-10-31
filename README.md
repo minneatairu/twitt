@@ -34,7 +34,7 @@ The **Search & save** button connects to Google and writes to the single-month c
 
 One-time Google setup for the deployment owner:
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create/select a project and enable **Google Sheets API**.
+1. In [Google Cloud Console](https://console.cloud.google.com/), create/select a project and enable **Google Sheets API** and **Google Drive API**.
 2. Configure the Google Auth Platform consent screen (app name, support email, audience). For an External app in Testing, add each intended Google account as a test user.
 3. Create an OAuth client with application type **Web application**. Add your exact deployed origin to **Authorized JavaScript origins**, for example `https://twitt-rose.vercel.app` (no path or trailing slash). Also add `http://localhost:8000` for local use if needed. Open the local app with that exact hostname. Each preview domain needs its own authorized origin; using one stable production domain is easiest. This popup token flow does not use an application redirect endpoint.
 4. Add `GOOGLE_CLIENT_ID` in **Vercel → Settings → Environment Variables**, using the public OAuth client ID ending in `.apps.googleusercontent.com`. Redeploy. No client secret, service-account key, or Google API key is needed.
@@ -150,3 +150,5 @@ Reply export columns are now limited to reply URL and text, beside the related u
 `collection_title` is omitted from CSV and new spreadsheet export columns; the title still names the search and exported files.
 
 Exports also omit `referenced_posts`, `in_reply_to_user_id`, `mentions`, and `author_id`. Internal matching data and checkpoints remain unchanged.
+
+All spreadsheets created by the app (search results and replies) are placed in a Google Drive folder named **Twitter Research** in the authorized account. The app reuses an accessible folder with that name or creates one. Existing app spreadsheets move into it on their next save; unrelated spreadsheets are not moved. With the existing `drive.file` permission, a folder created manually or by another app may not be visible to this app. Retrying a failed folder move reuses the saved spreadsheet ID.

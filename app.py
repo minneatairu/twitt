@@ -346,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(content)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self' https://accounts.google.com; script-src 'self' https://accounts.google.com; connect-src 'self' https://sheets.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; img-src 'self' https://pbs.twimg.com; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self' https://accounts.google.com; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://sheets.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; img-src 'self' https://pbs.twimg.com; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(content)
 
