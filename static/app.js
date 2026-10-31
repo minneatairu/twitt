@@ -107,7 +107,7 @@ function render() {
     : collection?.status === 'saved' ? `Saved · ${collection.rows.length} posts`
     : collection?.status === 'error' ? collection.error : collection?.status === 'searching' ? `Searching · ${collection.rows.length} posts`
     : collection?.status === 'saving' ? `Saving · ${collection.uploaded} of ${collection.rows.length} posts`
-    : reason || 'Ready — click Search & save.';
+    : reason || '';
   document.querySelector('#settings-status').textContent = changed && hasData()
     ? `Your existing results still belong to “${collection.title}” (${collection.month}). Applying edits starts a separate spreadsheet.` : '';
   if (collection?.sheet.id) {

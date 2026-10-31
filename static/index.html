@@ -5,13 +5,13 @@
 <header><a class="brand" href="/">twitt<span> / archive collector</span></a><span class="badge">X API · Full archive</span></header>
 <div class="layout"><form id="search-form">
 <div class="section-title"><span class="step">01</span><h2>Build your collection</h2></div>
-<label for="collection-title">Collection title</label><input id="collection-title" required maxlength="150" placeholder="e.g. Climate discussion study"><p class="hint">Names your spreadsheet and labels each row. You can edit the title, query, limit, and month before searching. Changing an already-searched collection starts a separate spreadsheet. The title is separate from your X search query.</p>
+<label for="collection-title">Collection title</label><input id="collection-title" required maxlength="150" placeholder="e.g. Climate discussion study">
 <p id="settings-status" class="hint" role="status" aria-live="polite"></p>
 <label for="query">Keywords, hashtags, or an X search query</label>
 <textarea id="query" name="query" required maxlength="1024" rows="3" placeholder="#climate OR &quot;clean energy&quot; lang:en -is:retweet"></textarea>
 
 <section class="month-slot" id="slot-0"><label for="month-0">Search month</label><input id="month-0" type="month" min="2006-03" required><p class="slot-status" id="slot-status-0" role="status">Not started</p><button type="button" class="month-action" id="search-month" disabled>Search &amp; save</button></section>
-<p class="hint">Search one month at a time. Green means this search was saved successfully to its spreadsheet.</p>
+
 <label for="post-limit">Posts per month</label><select id="post-limit" name="post-limit"><option value="5" selected>5 · quick test</option><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="500">500 · full collection</option></select>
 
 
@@ -32,8 +32,9 @@
 <div id="reply-controls" hidden><div class="reply-counts" aria-label="Reply counts">
 <div><span>Initial posts loaded</span><strong id="reply-loaded-count">0</strong></div>
 <div><span>Replies reported in uploaded CSV</span><strong id="reply-csv-count">Unavailable</strong><small id="reply-csv-count-note"></small></div>
-<div><span>Unique replies retrieved from X</span><strong id="reply-api-count">0</strong><small id="reply-api-count-note">Search not started</small></div>
-</div><p class="hint">CSV counts reflect direct replies when those posts were originally collected. Retrieved counts update as X pages arrive and may include more replies across the conversation.</p><p id="reply-plan" class="estimate" role="status"></p><label for="reply-budget">Maximum API calls this run (failed calls also count)</label><select id="reply-budget"><option value="1" selected>1 call · review before continuing</option><option value="5">5 calls</option><option value="20">20 calls</option><option value="0">Continue until complete or blocked</option></select>
+<div><span>Minimum remaining API calls</span><strong id="reply-min-calls">0</strong><small id="reply-min-calls-note">Additional pages may require more calls</small></div>
+<div><span>Posts with 0 reported replies</span><strong id="reply-zero-count">0</strong><small>From the uploaded CSV; missing counts are not zero</small></div>
+</div><p id="reply-plan" class="estimate" role="status"></p><label for="reply-budget">Maximum API calls this run (failed calls also count)</label><select id="reply-budget"><option value="1" selected>1 call · review before continuing</option><option value="5">5 calls</option><option value="20">20 calls</option><option value="0">Continue until complete or blocked</option></select>
 <label class="checkbox-label"><input id="reply-auto-resume" type="checkbox" checked> Wait and resume automatically when X supplies a rate-limit reset time</label>
 <div class="reply-actions"><button id="run-replies" type="button">Start / resume replies</button><button id="pause-replies" class="secondary" type="button" disabled>Pause after current request</button></div>
 <button id="restart-reply-cursor" class="secondary" type="button" hidden>Restart rejected batch cursor</button>
@@ -50,8 +51,8 @@
 </fieldset>
 <button id="clear-replies" class="secondary" type="button">Clear replies job / start fresh</button>
 <a id="open-replies-sheet" class="sheet-link" target="_blank" rel="noopener noreferrer" hidden>Open replies spreadsheet ↗</a>
-<p id="reply-status" role="status" aria-live="polite">No selected-posts file imported.</p><p class="hint">Session only: refreshing or closing this tab clears the current data. Nothing is automatically restored or merged. When reporting is connected, reply-search logs and results are saved to Google Sheets after each run. Export your results to CSV or Google Drive before leaving. Reply jobs cannot be restored from uploaded checkpoints. Credits and usage caps require more allowance; invalid cursors pause without silently restarting.</p>
-<p class="hint">Status guide: not_searched means this conversation is still queued; it does not mean X failed to return its replies. paused_incomplete means a searched page is missing required conversation metadata. skipped_zero_reported_replies means you explicitly excluded that selected row. An unresolved-record count applies to one returned page, not the number of queued selected posts.</p>
+<p id="reply-status" role="status" aria-live="polite">No selected-posts file imported.</p>
+
 <div id="reply-summary" class="table-scroll"></div><div id="reply-preview"></div>
 </section>
 <section id="gallery-section" hidden><h2>Collected posts &amp; images</h2><p class="hint">Directly attached photos and video previews. Images load from X when available.</p><div id="gallery"></div><button id="more" type="button" hidden>Show more posts</button></section>

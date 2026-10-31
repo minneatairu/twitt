@@ -32,10 +32,11 @@ with sync_playwright() as p:
     assert '2 posts skipped' in plan and 'minimum 1 more API calls' in plan
     assert calls == []
     assert page.locator('#reply-loaded-count').inner_text() == '5'
+    assert page.locator('#reply-zero-count').inner_text() == '2'
     assert page.locator('#reply-csv-count').inner_text() == '10'
     assert '2 of 5' in page.locator('#reply-csv-count-note').inner_text()
-    assert page.locator('#reply-api-count').inner_text() == '0'
-    assert page.locator('#reply-api-count-note').inner_text() == 'Search not started'
+    assert page.locator('#reply-min-calls').inner_text() == '1'
+    assert 'additional pages may require more' in page.locator('#reply-min-calls-note').inner_text()
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['batches'][0]['ids'] == ['100','300','400']
     page.wait_for_function("() => !document.getElementById('run-replies').disabled")
@@ -45,7 +46,7 @@ with sync_playwright() as p:
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert len(calls) == 1
     assert page.locator('#reply-csv-count').inner_text() == '10'
-    assert page.locator('#reply-api-count').inner_text() == '3'
+    assert page.locator('#reply-min-calls').inner_text() == '0'
     assert [reply['id'] for thread in saved['threads'] for reply in thread['replies']] == ['900','901','902']
     assert 'skipped_zero_reported_replies' in page.locator('#reply-summary').inner_text()
     with page.expect_download() as download:
@@ -75,7 +76,8 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-controls').hidden")
     upload(b'id,conversation_id,text\n100,100,No count column\n')
     assert page.locator('#reply-csv-count').inner_text() == 'Unavailable'
-    assert page.locator('#reply-api-count').inner_text() == '0'
+    assert page.locator('#reply-zero-count').inner_text() == '0'
+    assert page.locator('#reply-min-calls').inner_text() == '1'
     assert len(calls) == 1
     browser.close()
     print('PASS: counts, explicit skips, unknown counts, shared parent matching, CSV, separate uploaded/retrieved totals, all-zero and default search-all.')

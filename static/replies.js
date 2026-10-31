@@ -295,10 +295,12 @@
       const known = counts.filter(count => count !== null);
       const unknown = counts.length - known.length;
       q('reply-loaded-count').textContent = String(state.posts.length);
+      q('reply-zero-count').textContent = counts.filter(count => count === 0).length.toLocaleString('en-US');
       q('reply-csv-count').textContent = known.length ? known.reduce((sum,count) => sum + BigInt(count),0n).toLocaleString('en-US') : 'Unavailable';
       q('reply-csv-count-note').textContent = unknown ? `${unknown} of ${counts.length} posts have missing or invalid counts${known.length ? '; total includes known counts only' : '. Keep the replies column in your CSV'}.` : 'Total from the replies column in your CSV';
-      q('reply-api-count').textContent = new Set(state.threads.flatMap(thread => thread.replies.map(reply => reply.id))).size.toLocaleString('en-US');
-      q('reply-api-count-note').textContent = state.attempts ? (state.batches.every(batch => batch.complete) ? 'Search complete' : 'Collected so far') : 'Search not started';
+      const remainingCalls = state.batches.filter(batch => !batch.complete).length;
+      q('reply-min-calls').textContent = remainingCalls.toLocaleString('en-US');
+      q('reply-min-calls-note').textContent = remainingCalls ? 'At least one call per unfinished batch; additional pages may require more' : 'No unfinished search batches';
       q('reply-plan').textContent = workload(state);
     }
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;

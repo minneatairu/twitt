@@ -72,7 +72,7 @@ with sync_playwright() as p:
     page.wait_for_function('() => !document.getElementById("prepare-replies").disabled')
 
     def import_and_connect(connect=True):
-        page.locator('#selected-posts-file').set_input_files({'name': 'solar.csv', 'mimeType': 'text/csv', 'buffer': b'id,conversation_id,text\n100,100,Root\n101,100,Selected reply\n'})
+        page.locator('#selected-posts-file').set_input_files({'name': 'solar.csv', 'mimeType': 'text/csv', 'buffer': b'id,conversation_id,text,replies\n100,100,Root,10\n101,100,Selected reply,0\n'})
         page.click('#prepare-replies')
         page.wait_for_function('() => !document.getElementById("reply-controls").hidden')
         page.fill('#report-term', '#solar')
@@ -95,6 +95,9 @@ with sync_playwright() as p:
     assert summary[2:8] == ['#solar', '2024-06-01 – 2024-06-30', 2, 1, 3, 'paused_budget'], summary
     assert summary[1].endswith('Z')
     assert summary[8] == 'June 2024'
+    assert summary[9] == 1
+    assert cells["'June 2024'!A1"][2][-1] == 1
+    assert '0 reported replies' in cells["'June 2024'!A1"][1][-1]
     assert cells["'June 2024'!A1"][5][0] == 'id'
     page.click('#run-replies')
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("status: complete")')
@@ -107,7 +110,8 @@ with sync_playwright() as p:
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("Report saved")')
     assert counters['workbooks'] == 1, 'Reuse the central workbook across jobs'
     assert len(logs) == 3
-    assert logs[2][-1] == 'June 2024 (2)'
+    assert logs[2][8] == 'June 2024 (2)'
+    assert logs[2][9] == 1
     checkpoint = page.evaluate('() => CollectionStore.loadReplies()')
     assert 'test-token' not in json.dumps(checkpoint)
     attempts = counters['x']

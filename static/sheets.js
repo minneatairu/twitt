@@ -183,9 +183,15 @@
     }
     const last = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth()+1, 0)).toISOString().slice(0,10);
     const replies = new Set(job.threads.flatMap(thread => thread.replies.map(reply => reply.id))).size;
+    const replyCountColumn = job.headers.findIndex(header => header.trim().toLowerCase() === 'replies');
+    const zeroReplies = job.posts.filter(post => {
+      const value = replyCountColumn < 0 ? '' : String(post.values[replyCountColumn] ?? '').trim();
+      return /^\d+$/.test(value) && Number(value) === 0;
+    }).length;
+    const zeroReplyHeader = '# of Initial posts with 0 reported replies';
     const summary = [report.retrievedAt, report.term, `${report.month}-01 – ${last}`, job.posts.length, replies, job.posts.length + replies, job.status];
     const tab = "'" + target.title.replaceAll("'", "''") + "'";
-    const values = [['Reply job ID',key], reportHeaders, summary, ['Counts use unique uploaded initial posts and unique retrieved reply IDs. Partial runs are labeled by status.'], [], ...table];
+    const values = [['Reply job ID',key], [...reportHeaders,zeroReplyHeader], [...summary,zeroReplies], ['Counts use unique uploaded initial posts and unique retrieved reply IDs. Partial runs are labeled by status.'], [], ...table];
     await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties:{sheetId:target.sheetId, gridProperties:{rowCount:Math.max(1000,values.length),columnCount:table.reduce((max,row)=>Math.max(max,row.length),9)}},fields:'gridProperties.rowCount,gridProperties.columnCount'}}, {updateCells:{range:{sheetId:target.sheetId}, fields:'userEnteredValue'}}]});
     // Fixed ranges make retrying an upload safe; preserve the existing job tab.
     for (let offset=0; offset<values.length;) {
@@ -204,9 +210,9 @@
     const rows = logs.values || [];
     const existing = rows.findIndex(row => row[0] === key);
     const row = existing >= 1 ? existing + 1 : Math.max(2,rows.length+1);
-    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,'Result tab']]});
-    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:I") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
-    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,target.title]]});
+    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,'Result tab',zeroReplyHeader]]});
+    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:J") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
+    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,target.title,zeroReplies]]});
     report.tab = target.title;
     report.savedAt = new Date().toISOString();
     await checkpoint();
