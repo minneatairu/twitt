@@ -44,6 +44,12 @@ with sync_playwright() as p:
                     sheet = {'sheetId': len(sheets), **request['addSheet']['properties']}
                     sheets.append(sheet)
                     replies.append({'addSheet': {'properties': sheet}})
+                elif 'deleteDimension' in request:
+                    assert request['deleteDimension']['range']['startIndex'] == 8
+                    for row in logs:
+                        if len(row) > 8: row.pop(8)
+                    cells["'Logs'!A1"][0].pop(8)
+                    replies.append({})
                 else:
                     replies.append({})
             return route.fulfill(json={'replies': replies})
@@ -51,8 +57,8 @@ with sync_playwright() as p:
             return route.fulfill(json={'sheets': [{'properties': s} for s in sheets]})
         cell = path.split('/values/')[1]
         if method == 'GET':
-            return route.fulfill(json={'values': logs if cell == "'Logs'!A:A" else cells.get(cell, [])})
-        if counters['fail'] and 'June 2024' in cell:
+            return route.fulfill(json={'values': logs if cell == "'Logs'!A:A" else cells.get("'Logs'!A1" if cell == "'Logs'!A1:J1" else cell, [])})
+        if counters['fail'] and cell.startswith("'Logs'!A") and method != 'GET':
             counters['fail'] = False
             return route.fulfill(status=429, json={'error': {'message': 'try later'}})
         if ':append' in cell:
@@ -89,29 +95,33 @@ with sync_playwright() as p:
     page.click('#retry-reporting')
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("Report saved")')
     assert counters['x'] == 1, 'Retry must never repeat X search'
-    assert len(sheets) == 2, 'Retry must reuse the result tab'
+    assert len(sheets) == 1, 'Reporting must not create month tabs'
     assert len(logs) == 2
     summary = logs[1]
     assert summary[2:8] == ['#solar', '2024-06-01 – 2024-06-30', 2, 1, 3, 'paused_budget'], summary
     assert summary[1].endswith('Z')
-    assert summary[8] == 'June 2024'
-    assert summary[9] == 1
-    assert cells["'June 2024'!A1"][2][-1] == 1
-    assert '0 reported replies' in cells["'June 2024'!A1"][1][-1]
-    assert cells["'June 2024'!A1"][5][0] == 'id'
+    assert summary[8] == 1
+    assert '0 reported replies' in cells["'Logs'!A1"][0][-1]
+    assert 'A reply' not in json.dumps(cells)
+    assert 'Selected reply' not in json.dumps(cells)
+    # Simulate the earlier workbook schema and verify the unused column migrates safely.
+    cells["'Logs'!A1"][0].insert(8, 'Result tab')
+    logs[1].insert(8, 'June 2024')
     page.click('#run-replies')
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("status: complete")')
     assert len(logs) == 2, 'Resuming updates one log row'
     assert logs[1][4:8] == [2, 2, 4, 'complete']
-    assert len(sheets) == 2, 'Resuming updates the same month tab'
+    assert len(logs[1]) == 9 and logs[1][8] == 1
+    assert 'Result tab' not in cells["'Logs'!A1"][0]
+    assert len(sheets) == 1, 'Resuming only updates Logs'
     page.on('dialog', lambda dialog: dialog.accept())
     page.click('#clear-replies')
     import_and_connect(connect=False)
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("Report saved")')
     assert counters['workbooks'] == 1, 'Reuse the central workbook across jobs'
     assert len(logs) == 3
-    assert logs[2][8] == 'June 2024 (2)'
-    assert logs[2][9] == 1
+    assert logs[2][8] == 1
+    assert len(sheets) == 1
     checkpoint = page.evaluate('() => CollectionStore.loadReplies()')
     assert 'test-token' not in json.dumps(checkpoint)
     attempts = counters['x']
@@ -122,4 +132,4 @@ with sync_playwright() as p:
     assert counters['x'] == attempts
     assert not errors, errors
     browser.close()
-    print('PASS: centralized workbook, UTC metadata, unique counts, month tabs, repeat-month tab, automatic upload, retry without X refetch or duplicate tabs/logs.')
+    print('PASS: centralized workbook, UTC metadata, unique counts, one Logs tab across multiple jobs, automatic upload, retry without X refetch or duplicate tabs/logs.')

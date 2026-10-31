@@ -152,10 +152,9 @@
     await organize({id}, token);
     return id;
   }
-  async function writeReport(job, table, token, checkpoint) {
+  async function writeReport(job, token, checkpoint) {
     const report = job.reporting;
     if (!report?.workbookId || !report.term?.trim() || !/^\d{4}-\d{2}$/.test(report.month)) throw new Error('Connect reporting and enter the original search term and month.');
-    if (table.some(row => row.some(value => String(value).length > 50000))) throw new Error('A result cell exceeds Google Sheets’ 50,000-character limit. Download CSV instead.');
     const id = report.workbookId;
     const metadata = await request('/' + id + '?fields=sheets.properties', token, 'GET');
     let sheets = metadata.sheets.map(sheet => sheet.properties);
@@ -163,23 +162,13 @@
       const added = await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{addSheet:{properties:{title:'Logs', gridProperties:{frozenRowCount:1}}}}]});
       sheets.push(added.replies[0].addSheet.properties);
     }
-    // Store job identity inside the tab, so a lost create response can be recovered.
     const key = report.key;
-    let target = Number.isSafeInteger(report.tabId) ? sheets.find(sheet => sheet.sheetId === report.tabId) : null;
-    for (const sheet of target ? [] : sheets.filter(sheet => sheet.title !== 'Logs')) {
-      const marker = await request('/' + id + '/values/' + encodeURIComponent("'" + sheet.title.replaceAll("'", "''") + "'!A1:B1"), token, 'GET');
-      if (marker.values?.[0]?.[0] === 'Reply job ID' && marker.values[0][1] === key) { target = sheet; break; }
-    }
     const monthDate = new Date(report.month + '-01T00:00:00Z');
-    const monthLabel = monthDate.toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
-    if (!target) {
-      let title = report.tab || monthLabel, suffix = 2;
-      while (sheets.some(sheet => sheet.title === title)) title = monthLabel + ' (' + suffix++ + ')';
-      report.tab = title;
-      do { report.tabId = crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff; } while (sheets.some(sheet => sheet.sheetId === report.tabId));
-      await checkpoint();
-      const added = await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{addSheet:{properties:{title, sheetId:report.tabId}}}]});
-      target = added.replies[0].addSheet.properties;
+    // Remove the obsolete tab-name column while preserving existing zero counts.
+    const header = await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1:J1"), token, 'GET');
+    if (header.values?.[0]?.[8] === 'Result tab') {
+      const logSheet = sheets.find(sheet => sheet.title === 'Logs');
+      await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{deleteDimension:{range:{sheetId:logSheet.sheetId, dimension:'COLUMNS', startIndex:8, endIndex:9}}}]});
     }
     const last = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth()+1, 0)).toISOString().slice(0,10);
     const replies = new Set(job.threads.flatMap(thread => thread.replies.map(reply => reply.id))).size;
@@ -190,30 +179,13 @@
     }).length;
     const zeroReplyHeader = '# of Initial posts with 0 reported replies';
     const summary = [report.retrievedAt, report.term, `${report.month}-01 – ${last}`, job.posts.length, replies, job.posts.length + replies, job.status];
-    const tab = "'" + target.title.replaceAll("'", "''") + "'";
-    const values = [['Reply job ID',key], [...reportHeaders,zeroReplyHeader], [...summary,zeroReplies], ['Counts use unique uploaded initial posts and unique retrieved reply IDs. Partial runs are labeled by status.'], [], ...table];
-    await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties:{sheetId:target.sheetId, gridProperties:{rowCount:Math.max(1000,values.length),columnCount:table.reduce((max,row)=>Math.max(max,row.length),9)}},fields:'gridProperties.rowCount,gridProperties.columnCount'}}, {updateCells:{range:{sheetId:target.sheetId}, fields:'userEnteredValue'}}]});
-    // Fixed ranges make retrying an upload safe; preserve the existing job tab.
-    for (let offset=0; offset<values.length;) {
-      const batch = []; let bytes = 0;
-      while (offset+batch.length < values.length && batch.length < 100) {
-        const next = values[offset+batch.length];
-        const size = new TextEncoder().encode(JSON.stringify(next)).length;
-        if (batch.length && bytes+size > 1000000) break;
-        batch.push(next); bytes += size;
-      }
-      await request('/' + id + '/values/' + encodeURIComponent(tab + '!A' + (offset+1)) + '?valueInputOption=RAW', token, 'PUT', {majorDimension:'ROWS', values:batch});
-      offset += batch.length;
-      if (offset < values.length) await new Promise(resolve => setTimeout(resolve,1100));
-    }
     const logs = await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A:A"), token, 'GET');
     const rows = logs.values || [];
     const existing = rows.findIndex(row => row[0] === key);
     const row = existing >= 1 ? existing + 1 : Math.max(2,rows.length+1);
-    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,'Result tab',zeroReplyHeader]]});
-    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:J") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
-    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,target.title,zeroReplies]]});
-    report.tab = target.title;
+    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,zeroReplyHeader]]});
+    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:I") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
+    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,zeroReplies]]});
     report.savedAt = new Date().toISOString();
     await checkpoint();
   }

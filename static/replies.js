@@ -173,8 +173,6 @@
       throw new Error('Invalid reporting metadata in reply job.');
     }
     return {key:input.key, workbookId:input.workbookId, term:input.term, month:input.month,
-      tabId:Number.isSafeInteger(input.tabId) && input.tabId >= 0 && input.tabId <= 0x7fffffff ? input.tabId : undefined,
-      tab:typeof input.tab === 'string' && /^[A-Za-z0-9 ()]+$/.test(input.tab) && input.tab.length <= 100 ? input.tab : undefined,
       retrievedAt:typeof input.retrievedAt === 'string' && Number.isFinite(Date.parse(input.retrievedAt)) ? input.retrievedAt : undefined};
   }
   function validateJob(input) {
@@ -629,8 +627,8 @@
     try {
       if (!reportingToken) throw new Error('Reconnect automatic reporting to upload this job’s report.');
       reportStatus.textContent = 'Updating Data Reporting Workbook…';
-      await TwittSheets.writeReport(state, exportTable(), reportingToken, save);
-      reportStatus.textContent = `Report saved in ${state.reporting.tab}. Counts include all replies collected so far; status: ${state.status}.`;
+      await TwittSheets.writeReport(state, reportingToken, save);
+      reportStatus.textContent = `Report saved in Logs. Counts include all replies collected so far; status: ${state.status}.`;
       reportStatus.classList.remove('error');
     } catch (error) {
       reportStatus.textContent = `Report not saved: ${error.message} Your replies are retained. Reconnect or retry the report upload; no X requests are repeated.`;
