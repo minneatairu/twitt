@@ -11,7 +11,7 @@
   const pause = q('pause-replies');
   const today = new Date().toISOString().slice(0, 10);
   start.max = end.max = today;
-  start.value = '2006-03-21'; end.value = today;
+  start.value = '2022-04-01'; end.value = today;
   let state = null;
   let running = false;
   let exporting = false;
@@ -356,10 +356,7 @@
     if (running || exporting || !source.files[0] || state) return;
     try {
       if (source.files[0].size > 32 * 1024 * 1024) throw new Error('Selected-posts CSV must be at most 32 MiB.');
-      const table = selectedTable(parseCSV(await source.files[0].text()));
-      const dateColumn = table.headers.map(value => value.toLowerCase()).indexOf('created_at');
-      const dates = table.posts.map(post => dateColumn >= 0 ? post.values[dateColumn].slice(0,10) : '').filter(value => /^\d{4}-\d\d-\d\d$/.test(value));
-      if (dates.length) start.value = dates.reduce((a,b) => a < b ? a : b);
+      selectedTable(parseCSV(await source.files[0].text()));
     } catch (error) { showError(error); }
   });
   form.addEventListener('submit', async event => {
@@ -428,7 +425,7 @@
         await CollectionStore.clearReplies();
         state = null; previewId = null; stop = false;
         source.value = ''; checkpointFile.value = '';
-        start.value = '2006-03-21'; end.value = today;
+        start.value = '2022-04-01'; end.value = today;
         q('reply-page-size').value = '500'; q('reply-budget').value = '1';
         q('reply-auto-resume').checked = true; q('skip-zero-replies').checked = false;
         q('reply-plan').textContent = ''; q('reply-preview').replaceChildren();
