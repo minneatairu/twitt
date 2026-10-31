@@ -270,6 +270,7 @@
   function render() {
     renderReporting();
     q('reply-controls').hidden = !state;
+    q('reply-finished').hidden = !state || state.status !== 'complete' || !state.batches.every(batch => batch.complete);
     run.disabled = !ready || running || exporting || initialBusy || !state || state.batches.every(thread => thread.complete);
     pause.disabled = !running;
     q('convert-conversation').hidden = !state || state.scope === 'conversation';
@@ -283,7 +284,14 @@
       const unknown = counts.length - known.length;
       q('reply-loaded-count').textContent = String(state.posts.length);
       q('reply-zero-count').textContent = counts.filter(count => count === 0).length.toLocaleString('en-US');
-      q('reply-csv-count').textContent = known.length ? known.reduce((sum,count) => sum + BigInt(count),0n).toLocaleString('en-US') : 'Unavailable';
+      const reportedTotal = known.reduce((sum,count) => sum + BigInt(count),0n);
+      q('reply-csv-count').textContent = known.length ? reportedTotal.toLocaleString('en-US') : 'Unavailable';
+      // User-supplied rate: $0.50 per 100 returned tweets. Round half-cents up.
+      const cents = (reportedTotal + 1n) / 2n;
+      const dollars = '$' + (cents / 100n).toLocaleString('en-US') + '.' + String(cents % 100n).padStart(2,'0');
+      q('reply-cost-estimate').textContent = known.length
+        ? `Estimated reply retrieval cost: ≈ ${dollars} USD${unknown ? ' (incomplete; known CSV counts only)' : ''} · $0.005 per tweet. Actual billed tweets may differ.`
+        : 'Estimated reply retrieval cost: unavailable — no usable reply counts in the uploaded CSV.';
       q('reply-csv-count-note').textContent = unknown ? `${unknown} of ${counts.length} posts have missing or invalid counts${known.length ? '; total includes known counts only' : '. Keep the replies column in your CSV'}.` : '';
       const remainingCalls = state.batches.filter(batch => !batch.complete).length;
       q('reply-min-calls').textContent = remainingCalls.toLocaleString('en-US');

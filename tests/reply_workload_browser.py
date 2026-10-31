@@ -29,9 +29,11 @@ with sync_playwright() as p:
     upload(source)
     assert page.locator('#reply-plan').count() == 0
     assert calls == []
+    assert page.locator('#reply-finished').is_hidden()
     assert page.locator('#reply-loaded-count').inner_text() == '5'
     assert page.locator('#reply-zero-count').inner_text() == '2'
     assert page.locator('#reply-csv-count').inner_text() == '10'
+    assert '$0.05 USD (incomplete; known CSV counts only)' in page.locator('#reply-cost-estimate').inner_text()
     assert '2 of 5' in page.locator('#reply-csv-count-note').inner_text()
     assert page.locator('#reply-min-calls').inner_text() == '1'
     assert page.locator('#reply-min-calls-note').count() == 0
@@ -42,6 +44,8 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-min-calls').textContent === '0' && document.getElementById('run-replies').disabled && !document.getElementById('clear-replies').disabled")
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert len(calls) == 1
+    assert page.locator('#reply-finished').is_visible()
+    assert page.locator('#reply-finished').inner_text() == 'Reply collection finished'
     assert page.locator('#reply-csv-count').inner_text() == '10'
     assert page.locator('#reply-min-calls').inner_text() == '0'
     assert [reply['id'] for thread in saved['threads'] for reply in thread['replies']] == ['900','901','902']
@@ -58,7 +62,9 @@ with sync_playwright() as p:
     page.locator('#skip-zero-replies').check()
     upload(b'id,conversation_id,replies\n100,100,0\n')
     assert page.locator('#run-replies').is_disabled()
+    assert page.locator('#reply-finished').is_hidden(), 'Skipped-only jobs have not performed a collection'
     assert page.locator('#reply-csv-count').inner_text() == '0'
+    assert '$0.00 USD' in page.locator('#reply-cost-estimate').inner_text()
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
     assert page.locator('#reply-min-calls').inner_text() == '0'
     assert len(calls) == 1
@@ -72,8 +78,15 @@ with sync_playwright() as p:
     page.wait_for_function("() => document.getElementById('reply-controls').hidden")
     upload(b'id,conversation_id,text\n100,100,No count column\n')
     assert page.locator('#reply-csv-count').inner_text() == 'Unavailable'
+    assert 'unavailable' in page.locator('#reply-cost-estimate').inner_text()
     assert page.locator('#reply-zero-count').inner_text() == '0'
     assert page.locator('#reply-min-calls').inner_text() == '1'
     assert len(calls) == 1
+    page.locator('#clear-replies').click()
+    page.wait_for_function("() => document.getElementById('reply-controls').hidden")
+    upload(b'id,conversation_id,replies\n100,100,4000\n')
+    assert '$20.00 USD' in page.locator('#reply-cost-estimate').inner_text()
+    assert 'incomplete' not in page.locator('#reply-cost-estimate').inner_text()
+    assert len(calls) == 1, 'Estimating cost must not make X requests'
     browser.close()
     print('PASS: counts, explicit skips, unknown counts, shared parent matching, CSV, separate uploaded/retrieved totals, all-zero and default search-all.')
