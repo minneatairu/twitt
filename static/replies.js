@@ -290,7 +290,17 @@
     q('clear-replies').disabled = running || exporting || !ready;
     [source, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || exporting || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || exporting || !ready;
-    if (state) q('reply-plan').textContent = workload(state);
+    if (state) {
+      const counts = state.posts.map(post => reportedReplies(post, state.headers));
+      const known = counts.filter(count => count !== null);
+      const unknown = counts.length - known.length;
+      q('reply-loaded-count').textContent = String(state.posts.length);
+      q('reply-csv-count').textContent = known.length ? known.reduce((sum,count) => sum + BigInt(count),0n).toLocaleString('en-US') : 'Unavailable';
+      q('reply-csv-count-note').textContent = unknown ? `${unknown} of ${counts.length} posts have missing or invalid counts${known.length ? '; total includes known counts only' : '. Keep the replies column in your CSV'}.` : 'Total from the replies column in your CSV';
+      q('reply-api-count').textContent = new Set(state.threads.flatMap(thread => thread.replies.map(reply => reply.id))).size.toLocaleString('en-US');
+      q('reply-api-count-note').textContent = state.attempts ? (state.batches.every(batch => batch.complete) ? 'Search complete' : 'Collected so far') : 'Search not started';
+      q('reply-plan').textContent = workload(state);
+    }
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
     q('restart-reply-cursor').hidden = !state?.batches.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
     q('restart-reply-cursor').disabled = running || exporting;
