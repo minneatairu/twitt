@@ -179,6 +179,18 @@
       /^\d{4}-\d\d-\d\dT.*Z$/.test(window.start) && /^\d{4}-\d\d-\d\dT.*Z$/.test(window.end) &&
       Date.parse(window.start) >= Date.parse('2006-03-21T00:00:00Z') && Date.parse(window.start) < Date.parse(window.end) && Date.parse(window.end) <= Date.now();
   }
+  function validateReporting(input) {
+    if (!input) return undefined;
+    if (!/^[A-Za-z0-9_-]+$/.test(input.workbookId || '') || !/^[A-Za-z0-9_-]{8,100}$/.test(input.key || '') ||
+        typeof input.term !== 'string' || !input.term.trim() || input.term.length > 1024 ||
+        !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month || '') || input.month < '2006-03' || input.month > today.slice(0,7)) {
+      throw new Error('Invalid reporting metadata in checkpoint.');
+    }
+    return {key:input.key, workbookId:input.workbookId, term:input.term, month:input.month,
+      tabId:Number.isSafeInteger(input.tabId) && input.tabId >= 0 && input.tabId <= 0x7fffffff ? input.tabId : undefined,
+      tab:typeof input.tab === 'string' && /^[A-Za-z0-9 ()]+$/.test(input.tab) && input.tab.length <= 100 ? input.tab : undefined,
+      retrievedAt:typeof input.retrievedAt === 'string' && Number.isFinite(Date.parse(input.retrievedAt)) ? input.retrievedAt : undefined};
+  }
   function validateCheckpoint(input) {
     if (!input || input.kind !== 'twitt-replies' || ![1,2].includes(input.version) || !Array.isArray(input.headers) ||
         !Array.isArray(input.posts) || !Array.isArray(input.threads) || !windowValid(input.window) || ![10,100,500].includes(input.pageSize)) throw new Error('Unsupported or invalid replies checkpoint.');
@@ -248,6 +260,7 @@
     let prefix = 'reply_';
     while (extraFields.some(field => table.headers.some(header => header.toLowerCase() === prefix + field))) prefix = 'collected_' + prefix;
     return {kind: 'twitt-replies', version: 2, id: crypto.randomUUID(), ...table, threads, batches, prefix, scope, sourceFilename:typeof input.sourceFilename === 'string' ? input.sourceFilename.slice(0,200) : '',
+      reporting: validateReporting(input.reporting),
       replySheet:input.replySheet && /^[A-Za-z0-9_-]+$/.test(input.replySheet.id || '') ? {id:input.replySheet.id} : {}, skipZeroReplies: policy.skipZeroReplies,
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
@@ -269,6 +282,7 @@
     return state.status.startsWith('paused') ? state.status : 'partial';
   }
   function render() {
+    renderReporting();
     q('reply-controls').hidden = !state;
     run.disabled = !ready || running || exporting || initialBusy || !state || state.batches.every(thread => thread.complete);
     pause.disabled = !running;
@@ -368,6 +382,12 @@
           threads, batches, prefix, scope:'conversation', sourceFilename:source.files[0].name, replySheet:{}, skipZeroReplies, window, pageSize: Number(q('reply-page-size').value), attempts: 0,
           retryAt: null, status: 'ready', message: `Imported ${table.posts.length} selected posts in ${threads.length} conversations, grouped into ${batches.length} search batch(es). No API calls have been made.${batches.length ? '' : ' All posts were explicitly skipped; no searches are needed.'}`};
         await CollectionStore.saveReplies(next); state = next; previewId = null;
+        const active = await CollectionStore.load();
+        const activeIds = new Set((active?.rows || []).map(row => row.id));
+        const matches = table.posts.every(post => activeIds.has(post.id));
+        q('report-term').value = matches ? active?.query || '' : '';
+        q('report-month').value = matches ? active?.month || '' : '';
+        reportStatus.textContent = reportingToken ? 'Reporting connected this session. Enter the original search term and month; the next run will log automatically.' : 'Connect automatic reporting before starting replies.';
         status.classList.remove('error'); render();
       });
     } catch (error) { showError(error); }
@@ -510,12 +530,27 @@
       state.status = 'paused_error'; state.message = error.message + ' Stopped before another request. Download a checkpoint before refreshing or closing this tab.';
       try { await save(); } catch { /* Keep the in-memory state downloadable if browser storage is full. */ }
     } finally {
+      if (calls > 0 && state.reporting) {
+        state.reporting.retrievedAt = new Date().toISOString();
+        try { await save(); await syncReport(); }
+        catch (error) { reportStatus.textContent = 'Report not saved: ' + error.message; }
+      }
       running = false; document.dispatchEvent(new CustomEvent('twitt:reply-running', {detail:false})); render();
     }
   }
   run.addEventListener('click', async () => {
     if (!state || !ready || running || exporting || initialBusy) return;
-    try { await exclusive(collect); } catch (error) { showError(error); }
+    try {
+      await exclusive(async () => {
+        if (!state.reporting && reportingToken && reportingWorkbookId) {
+          const term = q('report-term').value.trim(), month = q('report-month').value;
+          if (!term || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '2006-03' || month > today.slice(0,7)) throw new Error('Enter the original search term and month for automatic reporting before starting replies.');
+          state.reporting = {key:crypto.randomUUID(), workbookId:reportingWorkbookId, term, month};
+          await save();
+        }
+        await collect();
+      });
+    } catch (error) { showError(error); }
   });
   q('restart-reply-cursor').addEventListener('click', async () => {
     if (running || exporting || !state || !confirm('Restart the rejected search batch from its first page? Already collected replies are retained and deduplicated. This uses additional API allowance.')) return;
@@ -568,6 +603,66 @@
   });
   q('download-reply-checkpoint').addEventListener('click', () => {
     if (state) download('twitt-replies-checkpoint.json', JSON.stringify(state), 'application/json');
+  });
+  let reportingToken = null;
+  let reportingWorkbookId = null;
+  const reportStatus = q('report-status');
+  function renderReporting() {
+    const busy = running || exporting || initialBusy;
+    q('connect-reporting').disabled = busy || !state;
+    q('retry-reporting').disabled = busy || !state?.reporting?.retrievedAt;
+    q('retry-reporting').hidden = !state?.reporting?.retrievedAt;
+    q('report-term').disabled = q('report-month').disabled = busy || Boolean(state?.reporting);
+    q('open-reporting').hidden = !state?.reporting?.workbookId;
+    if (state?.reporting) {
+      q('report-term').value = state.reporting.term;
+      q('report-month').value = state.reporting.month;
+      q('open-reporting').href = 'https://docs.google.com/spreadsheets/d/' + state.reporting.workbookId + '/edit';
+    }
+  }
+  async function syncReport() {
+    if (!state?.reporting?.retrievedAt) return;
+    try {
+      if (!reportingToken) throw new Error('Reconnect automatic reporting to upload this checkpoint’s report.');
+      reportStatus.textContent = 'Updating Data Reporting Workbook…';
+      await TwittSheets.writeReport(state, exportTable(), reportingToken, save);
+      reportStatus.textContent = `Report saved in ${state.reporting.tab}. Counts include all replies collected so far; status: ${state.status}.`;
+      reportStatus.classList.remove('error');
+    } catch (error) {
+      reportStatus.textContent = `Report not saved: ${error.message} Your replies are retained. Reconnect or retry the report upload; no X requests are repeated.`;
+      reportStatus.classList.add('error');
+    }
+  }
+  q('connect-reporting').addEventListener('click', async () => {
+    if (!state || running || exporting || initialBusy) return;
+    const term = state.reporting?.term || q('report-term').value.trim();
+    const month = state.reporting?.month || q('report-month').value;
+    if (!term || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '2006-03' || month > today.slice(0,7)) {
+      reportStatus.textContent = 'Enter the original search term and a valid search month before connecting.'; return;
+    }
+    exporting = true; render();
+    try {
+      // Authorize directly from the click, before any asynchronous work.
+      reportingToken = await TwittSheets.authorize();
+      await exclusive(async () => {
+        const workbookId = await TwittSheets.prepareReporting(reportingToken);
+        if (state.reporting && state.reporting.workbookId !== workbookId) throw new Error('Reconnect with the Google account that owns this job’s reporting workbook.');
+        reportingWorkbookId = workbookId;
+        state.reporting ||= {key:crypto.randomUUID(), workbookId, term, month};
+        await save();
+        reportStatus.textContent = 'Automatic reporting connected. Reply-search runs will update this workbook, including partial runs.';
+        reportStatus.classList.remove('error');
+        if (state.reporting.retrievedAt) await syncReport();
+      });
+    } catch (error) { reportStatus.textContent = error.message; reportStatus.classList.add('error'); }
+    finally { exporting = false; render(); }
+  });
+  q('retry-reporting').addEventListener('click', async () => {
+    if (!state || running || exporting || initialBusy) return;
+    exporting = true; render();
+    try { await exclusive(syncReport); }
+    catch (error) { reportStatus.textContent = error.message; }
+    finally { exporting = false; render(); }
   });
   document.addEventListener('twitt:collection-busy', event => { initialBusy = event.detail; render(); });
   ready = true; render();

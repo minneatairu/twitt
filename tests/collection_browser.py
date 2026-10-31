@@ -57,7 +57,8 @@ with sync_playwright() as p:
         return open(result.value.path(),encoding='utf-8-sig').read()
     page=browser.new_page(viewport={'width':1280,'height':1000});setup(page)
     assert page.locator('.month-slot').count()==1
-    assert page.locator('input[type=month]').count()==1
+    assert page.locator('#month-0').count()==1
+    assert page.locator('#report-month').count()==1
     assert page.locator('#post-limit').input_value()=='5'
     page.fill('#collection-title','Single month research');page.fill('#query','#climate');page.fill('#month-0','2024-01')
     page.click('#submit')

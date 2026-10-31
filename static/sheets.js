@@ -19,7 +19,7 @@
   async function request(path, token, method, body) {
     const response = await fetch('https://sheets.googleapis.com/v4/spreadsheets' + path, {
       method, headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
-      body: JSON.stringify(body), signal: AbortSignal.timeout(45000)
+      ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: AbortSignal.timeout(45000)
     });
     if (!response.ok) {
       const reasons = {401: 'Google authorization expired. Retry to reconnect and save.',
@@ -138,6 +138,79 @@
       if (offset<values.length) await new Promise(resolve => setTimeout(resolve,1100));
     }
   }
+  const reportHeaders = ['Retrieval date and time (UTC)', 'Search Term', 'Search month (UTC start–end)', '# of Initial posts loaded', '# of Replies retrieved', 'Total records (replies + initial posts)', 'Reply search status'];
+  async function prepareReporting(token) {
+    const query = "name = 'Data Reporting Workbook' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false and 'me' in owners";
+    const params = new URLSearchParams({q:query, fields:'files(id)', orderBy:'createdTime', pageSize:'1'});
+    const found = await drive('?' + params, token);
+    let id = found.files?.[0]?.id;
+    if (!id) {
+      const created = await request('', token, 'POST', {properties:{title:'Data Reporting Workbook'}, sheets:[{properties:{title:'Logs', gridProperties:{frozenRowCount:1}}}]});
+      id = created.spreadsheetId;
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(id || '')) throw new Error('Google returned an invalid reporting workbook ID.');
+    await organize({id}, token);
+    return id;
+  }
+  async function writeReport(job, table, token, checkpoint) {
+    const report = job.reporting;
+    if (!report?.workbookId || !report.term?.trim() || !/^\d{4}-\d{2}$/.test(report.month)) throw new Error('Connect reporting and enter the original search term and month.');
+    if (table.some(row => row.some(value => String(value).length > 50000))) throw new Error('A result cell exceeds Google Sheets’ 50,000-character limit. Download CSV instead.');
+    const id = report.workbookId;
+    const metadata = await request('/' + id + '?fields=sheets.properties', token, 'GET');
+    let sheets = metadata.sheets.map(sheet => sheet.properties);
+    if (!sheets.some(sheet => sheet.title === 'Logs')) {
+      const added = await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{addSheet:{properties:{title:'Logs', gridProperties:{frozenRowCount:1}}}}]});
+      sheets.push(added.replies[0].addSheet.properties);
+    }
+    // Store job identity inside the tab, so a lost create response can be recovered.
+    const key = report.key;
+    let target = Number.isSafeInteger(report.tabId) ? sheets.find(sheet => sheet.sheetId === report.tabId) : null;
+    for (const sheet of target ? [] : sheets.filter(sheet => sheet.title !== 'Logs')) {
+      const marker = await request('/' + id + '/values/' + encodeURIComponent("'" + sheet.title.replaceAll("'", "''") + "'!A1:B1"), token, 'GET');
+      if (marker.values?.[0]?.[0] === 'Reply job ID' && marker.values[0][1] === key) { target = sheet; break; }
+    }
+    const monthDate = new Date(report.month + '-01T00:00:00Z');
+    const monthLabel = monthDate.toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
+    if (!target) {
+      let title = report.tab || monthLabel, suffix = 2;
+      while (sheets.some(sheet => sheet.title === title)) title = monthLabel + ' (' + suffix++ + ')';
+      report.tab = title;
+      do { report.tabId = crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff; } while (sheets.some(sheet => sheet.sheetId === report.tabId));
+      await checkpoint();
+      const added = await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{addSheet:{properties:{title, sheetId:report.tabId}}}]});
+      target = added.replies[0].addSheet.properties;
+    }
+    const last = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth()+1, 0)).toISOString().slice(0,10);
+    const replies = new Set(job.threads.flatMap(thread => thread.replies.map(reply => reply.id))).size;
+    const summary = [report.retrievedAt, report.term, `${report.month}-01 – ${last}`, job.posts.length, replies, job.posts.length + replies, job.status];
+    const tab = "'" + target.title.replaceAll("'", "''") + "'";
+    const values = [['Reply job ID',key], reportHeaders, summary, ['Counts use unique uploaded initial posts and unique retrieved reply IDs. Partial runs are labeled by status.'], [], ...table];
+    await request('/' + id + ':batchUpdate', token, 'POST', {requests:[{updateSheetProperties:{properties:{sheetId:target.sheetId, gridProperties:{rowCount:Math.max(1000,values.length),columnCount:table.reduce((max,row)=>Math.max(max,row.length),9)}},fields:'gridProperties.rowCount,gridProperties.columnCount'}}, {updateCells:{range:{sheetId:target.sheetId}, fields:'userEnteredValue'}}]});
+    // Fixed ranges make retrying an upload safe; preserve the existing job tab.
+    for (let offset=0; offset<values.length;) {
+      const batch = []; let bytes = 0;
+      while (offset+batch.length < values.length && batch.length < 100) {
+        const next = values[offset+batch.length];
+        const size = new TextEncoder().encode(JSON.stringify(next)).length;
+        if (batch.length && bytes+size > 1000000) break;
+        batch.push(next); bytes += size;
+      }
+      await request('/' + id + '/values/' + encodeURIComponent(tab + '!A' + (offset+1)) + '?valueInputOption=RAW', token, 'PUT', {majorDimension:'ROWS', values:batch});
+      offset += batch.length;
+      if (offset < values.length) await new Promise(resolve => setTimeout(resolve,1100));
+    }
+    const logs = await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A:A"), token, 'GET');
+    const rows = logs.values || [];
+    const existing = rows.findIndex(row => row[0] === key);
+    const row = existing >= 1 ? existing + 1 : Math.max(2,rows.length+1);
+    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,'Result tab']]});
+    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:I") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
+    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,target.title]]});
+    report.tab = target.title;
+    report.savedAt = new Date().toISOString();
+    await checkpoint();
+  }
   window.TwittSheets = {setClientId(value) { clientId = value || ''; },
-    configured() { return Boolean(clientId); }, authorize, writeMonth, writeTable};
+    configured() { return Boolean(clientId); }, authorize, writeMonth, writeTable, prepareReporting, writeReport};
 })();
