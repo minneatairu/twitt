@@ -55,16 +55,9 @@ with sync_playwright() as p:
     assert page.evaluate('() => CollectionStore.loadReplies()') is None
     assert page.evaluate('() => CollectionStore.load()') is None
     assert page.locator('#selected-posts-file').input_value()==''
-    # Resuming is possible only through the user's explicit checkpoint import.
-    page.locator('#reply-checkpoint-file').set_input_files({'name':'saved.json','mimeType':'application/json','buffer':checkpoint.encode()})
-    page.wait_for_function("() => document.getElementById('reply-status').textContent.includes('Checkpoint restored')")
+    assert page.locator('#reply-checkpoint-file').count() == 0
     assert len(calls)==1 and dialogs==[]
-    with page.expect_download() as exported:page.locator('#download-combined').click()
-    assert 'Saved reply' in open(exported.value.path(),encoding='utf-8-sig').read()
-    page.locator('#clear-replies').click()
-    page.wait_for_function("() => document.getElementById('reply-controls').hidden")
-    assert dialogs==[]
     # Old saved data was left untouched rather than silently deleted.
     assert page.evaluate("""() => new Promise(resolve=>{const r=indexedDB.open('twitt-collections',1);r.onsuccess=()=>{const db=r.result;const q=db.transaction('collections').objectStore('collections').get('replies-active');q.onsuccess=()=>{resolve(q.result.old);db.close();};};})""")=='do not restore'
     browser.close()
-    print('PASS: old saved jobs ignored, reload starts empty, tabs isolated, replacement has no prompts, explicit checkpoint resume works, no automatic X calls.')
+    print('PASS: old saved jobs ignored, reload starts empty, tabs isolated, replacement has no prompts, checkpoint uploading is absent, no automatic X calls.')

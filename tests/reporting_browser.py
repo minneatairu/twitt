@@ -113,13 +113,9 @@ with sync_playwright() as p:
     attempts = counters['x']
     page.reload()
     page.wait_for_function('() => !document.getElementById("prepare-replies").disabled')
-    page.locator('#reply-checkpoint-file').set_input_files({'name':'checkpoint.json', 'mimeType':'application/json', 'buffer':json.dumps(checkpoint).encode()})
-    page.wait_for_function('() => document.getElementById("reply-status").textContent.includes("Checkpoint restored")')
+    assert page.locator('#reply-checkpoint-file').count() == 0
+    assert page.locator('#reply-controls').is_hidden()
     assert counters['x'] == attempts
-    page.click('#connect-reporting')
-    page.wait_for_function('() => document.getElementById("report-status").textContent.includes("Report saved")')
-    assert counters['x'] == attempts
-    assert len(sheets) == 3 and len(logs) == 3, 'Checkpoint reconnect reuses its tab and log row'
     assert not errors, errors
     browser.close()
     print('PASS: centralized workbook, UTC metadata, unique counts, month tabs, repeat-month tab, automatic upload, retry without X refetch or duplicate tabs/logs.')

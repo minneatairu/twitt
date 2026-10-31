@@ -4,7 +4,6 @@
   const form = q('reply-import-form');
   const status = q('reply-status');
   const source = q('selected-posts-file');
-  const checkpointFile = q('reply-checkpoint-file');
   const start = q('reply-start');
   const end = q('reply-end');
   const run = q('run-replies');
@@ -184,24 +183,24 @@
     if (!/^[A-Za-z0-9_-]+$/.test(input.workbookId || '') || !/^[A-Za-z0-9_-]{8,100}$/.test(input.key || '') ||
         typeof input.term !== 'string' || !input.term.trim() || input.term.length > 1024 ||
         !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month || '') || input.month < '2006-03' || input.month > today.slice(0,7)) {
-      throw new Error('Invalid reporting metadata in checkpoint.');
+      throw new Error('Invalid reporting metadata in reply job.');
     }
     return {key:input.key, workbookId:input.workbookId, term:input.term, month:input.month,
       tabId:Number.isSafeInteger(input.tabId) && input.tabId >= 0 && input.tabId <= 0x7fffffff ? input.tabId : undefined,
       tab:typeof input.tab === 'string' && /^[A-Za-z0-9 ()]+$/.test(input.tab) && input.tab.length <= 100 ? input.tab : undefined,
       retrievedAt:typeof input.retrievedAt === 'string' && Number.isFinite(Date.parse(input.retrievedAt)) ? input.retrievedAt : undefined};
   }
-  function validateCheckpoint(input) {
+  function validateJob(input) {
     if (!input || input.kind !== 'twitt-replies' || ![1,2].includes(input.version) || !Array.isArray(input.headers) ||
-        !Array.isArray(input.posts) || !Array.isArray(input.threads) || !windowValid(input.window) || ![10,100,500].includes(input.pageSize)) throw new Error('Unsupported or invalid replies checkpoint.');
+        !Array.isArray(input.posts) || !Array.isArray(input.threads) || !windowValid(input.window) || ![10,100,500].includes(input.pageSize)) throw new Error('Unsupported or invalid reply job.');
     const table = selectedTable([input.headers, ...input.posts.map(post => post.values)]);
     if (input.skipZeroReplies !== undefined && typeof input.skipZeroReplies !== 'boolean') throw new Error('Invalid zero-reply policy.');
-    if (input.version === 1 && input.skipZeroReplies === true) throw new Error('Legacy checkpoints cannot change their search policy.');
+    if (input.version === 1 && input.skipZeroReplies === true) throw new Error('Legacy jobs cannot change their search policy.');
     if (input.scope !== undefined && !['direct','conversation'].includes(input.scope)) throw new Error('Invalid reply scope.');
     const scope = input.scope || 'direct';
     const policy = {skipZeroReplies: input.skipZeroReplies === true, ...table};
     const expected = makeThreads(table.posts);
-    if (expected.length !== input.threads.length) throw new Error('Checkpoint conversations do not match its selected posts.');
+    if (expected.length !== input.threads.length) throw new Error('Job conversations do not match its selected posts.');
     const byId = new Map(table.posts.map(post => [post.id, post]));
     const threads = expected.map((thread, index) => {
       const saved = input.threads[index];
@@ -209,15 +208,15 @@
       if (!saved || saved.id !== thread.id || !token(saved.cursor) || !Array.isArray(saved.seenTokens) || saved.seenTokens.length > 100000 ||
           !saved.seenTokens.every(value => typeof value === 'string' && token(value)) || typeof saved.complete !== 'boolean' ||
           (saved.complete && saved.cursor !== null) || !Number.isSafeInteger(saved.pages) || saved.pages < 0 || (saved.complete && saved.pages === 0) ||
-          !Number.isSafeInteger(saved.scanned) || saved.scanned < 0 || !Array.isArray(saved.replies) || saved.replies.length > 200000) throw new Error('Invalid conversation progress in checkpoint.');
+          !Number.isSafeInteger(saved.scanned) || saved.scanned < 0 || !Array.isArray(saved.replies) || saved.replies.length > 200000) throw new Error('Invalid conversation progress in reply job.');
       const seen = new Set();
       const replies = saved.replies.map(reply => {
         if (!reply || !isId(reply.id) || seen.has(reply.id) || reply.conversation_id !== thread.id ||
-            (scope === 'direct' ? (!byId.has(reply.parent_post_id) || byId.get(reply.parent_post_id).conversationId !== thread.id) : (reply.parent_post_id !== '' && !isId(reply.parent_post_id)))) throw new Error('Invalid or duplicate reply-to-post relationship in checkpoint.');
+            (scope === 'direct' ? (!byId.has(reply.parent_post_id) || byId.get(reply.parent_post_id).conversationId !== thread.id) : (reply.parent_post_id !== '' && !isId(reply.parent_post_id)))) throw new Error('Invalid or duplicate reply-to-post relationship in reply job.');
         seen.add(reply.id);
         return Object.fromEntries(replyFields.map(field => {
           const value = reply[field] ?? '';
-          if (!['string','number'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))) throw new Error('Invalid reply metadata in checkpoint.');
+          if (!['string','number'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))) throw new Error('Invalid reply metadata in reply job.');
           return [field, value];
         }));
       });
@@ -240,7 +239,7 @@
       const byConversation = new Map(eligibleThreads.map(thread => [thread.id, thread]));
       batches = input.batches.map(saved => {
         if (!saved || !Array.isArray(saved.ids) || !saved.ids.length || !saved.ids.every(isId) ||
-            batchQuery(saved.ids).length > 1024 || new Set(saved.ids).size !== saved.ids.length) throw new Error('Invalid conversation batch in checkpoint.');
+            batchQuery(saved.ids).length > 1024 || new Set(saved.ids).size !== saved.ids.length) throw new Error('Invalid conversation batch in reply job.');
         for (const id of saved.ids) {
           const member = byConversation.get(id);
           if (!member || claimed.has(id) || member.cursor !== saved.cursor || member.complete !== saved.complete || member.pages !== saved.pages ||
@@ -251,7 +250,7 @@
         return batch(saved.ids, {cursor:saved.cursor, seenTokens:[...saved.seenTokens], complete:saved.complete,
           pages:saved.pages, scanned:saved.scanned, error:saved.error ? {code:String(saved.error.code), message:String(saved.error.message || '')} : null});
       });
-      if (claimed.size !== eligibleThreads.length) throw new Error('Checkpoint batches do not cover every conversation.');
+      if (claimed.size !== eligibleThreads.length) throw new Error('Job batches do not cover every conversation.');
     }
     for (const item of batches) for (const id of item.ids) {
       Object.assign(threads.find(thread => thread.id === id), {cursor:item.cursor, seenTokens:[...item.seenTokens],
@@ -265,7 +264,7 @@
       window: {start: input.window.start, end: input.window.end}, pageSize: input.pageSize,
       attempts: Number.isSafeInteger(input.attempts) && input.attempts >= 0 ? input.attempts : 0,
       retryAt: Number.isFinite(input.retryAt) && input.retryAt > 0 && input.retryAt < Date.now() + 7 * 86400000 ? input.retryAt : null, status: batches.every(thread => thread.complete) ? 'complete' : 'paused',
-      message: 'Checkpoint restored. Review progress, then click Start / resume when ready.'};
+      message: 'Reply job loaded. Review progress, then click Start / resume when ready.'};
   }
   async function save() {
     mirrorBatchProgress();
@@ -289,7 +288,7 @@
     q('convert-conversation').hidden = !state || state.scope === 'conversation';
     q('convert-conversation').disabled = running || exporting || !ready;
     q('clear-replies').disabled = running || exporting || !ready;
-    [source, checkpointFile, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || exporting || !ready; });
+    [source, q('prepare-replies'), q('reply-budget'), q('reply-auto-resume'), q('skip-zero-replies')].forEach(input => { input.disabled = running || exporting || !ready; });
     start.disabled = end.disabled = q('reply-page-size').disabled = running || exporting || !ready;
     if (state) q('reply-plan').textContent = workload(state);
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
@@ -352,16 +351,29 @@
     try { return await action(); } finally { actionActive = false; }
   }
   function showError(error) { status.textContent = error.message || 'Reply collection failed.'; status.classList.add('error'); }
+  function importMessage(message, error = false) {
+    q('reply-import-status').textContent = message;
+    q('reply-import-status').classList.toggle('error', error);
+  }
+  form.addEventListener('invalid', event => {
+    const message = event.target === source ? 'Choose your selected-posts CSV first. Keep the id and conversation_id columns.' : 'Choose valid reply start and end dates.';
+    importMessage(message, true);
+  }, true);
   source.addEventListener('change', async () => {
     if (running || exporting || !source.files[0] || state) return;
     try {
       if (source.files[0].size > 32 * 1024 * 1024) throw new Error('Selected-posts CSV must be at most 32 MiB.');
       selectedTable(parseCSV(await source.files[0].text()));
-    } catch (error) { showError(error); }
+      importMessage('CSV selected. Click Import selected posts to load it.');
+    } catch (error) { importMessage(error.message, true); showError(error); }
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (running || exporting || !ready || !source.files[0]) return;
+    if (running || exporting || !ready || !source.files[0]) {
+      importMessage(!source.files[0] ? 'Choose your selected-posts CSV first.' : 'Wait for the current operation to finish, then import again.', true);
+      return;
+    }
+    importMessage('Reading and validating your CSV…');
     try {
       await exclusive(async () => {
         if (source.files[0].size > 32 * 1024 * 1024) throw new Error('Selected-posts CSV must be at most 32 MiB.');
@@ -384,31 +396,20 @@
         const matches = table.posts.every(post => activeIds.has(post.id));
         q('report-term').value = matches ? active?.query || '' : '';
         q('report-month').value = matches ? active?.month || '' : '';
-        reportStatus.textContent = reportingToken ? 'Reporting connected this session. Enter the original search term and month; the next run will log automatically.' : 'Connect automatic reporting before starting replies.';
+        reportStatus.textContent = reportingToken ? 'Reporting connected this session. Enter the original search term and month; the next run will log automatically.' : 'Optional reporting is not connected. You can start replies without it.';
+        importMessage(`Loaded ${table.posts.length} selected posts. Use Start / resume replies below. No X requests have been made.`);
         status.classList.remove('error'); render();
+        q('reply-controls').scrollIntoView({behavior:'smooth', block:'center'});
       });
-    } catch (error) { showError(error); }
-  });
-  checkpointFile.addEventListener('change', async () => {
-    if (running || exporting || !ready || !checkpointFile.files[0]) return;
-    try {
-      await exclusive(async () => {
-        if (checkpointFile.files[0].size > 64 * 1024 * 1024) throw new Error('Checkpoint must be at most 64 MiB.');
-        const next = validateCheckpoint(JSON.parse(await checkpointFile.files[0].text()));
-        await CollectionStore.saveReplies(next); state = next; previewId = null;
-        start.value = state.window.start.slice(0,10); end.value = new Date(Date.parse(state.window.end) - 1).toISOString().slice(0,10); q('reply-page-size').value = String(state.pageSize); q('skip-zero-replies').checked = state.skipZeroReplies;
-        status.classList.remove('error'); render();
-      });
-    } catch (error) { showError(error); }
-    finally { checkpointFile.value = ''; }
+    } catch (error) { importMessage(error.message, true); showError(error); }
   });
   q('convert-conversation').addEventListener('click', async () => {
-    if (running || exporting || !ready || !state || !confirm('Switch to all replies in each selected conversation? Existing replies are retained. Previously started batches must be searched again from their first page to recover nested replies discarded by the old mode. This prepares the job without API calls; Start / resume uses additional allowance. Download a checkpoint first if you need the original job.')) return;
+    if (running || exporting || !ready || !state || !confirm('Switch to all replies in each selected conversation? Existing replies are retained. Previously started batches must be searched again from their first page to recover nested replies discarded by the old mode. This prepares the job without API calls; Start / resume uses additional allowance. Export your results first if you need the original job.')) return;
     try {
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
         if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry this action.');
-        state = validateCheckpoint(latest); state.id = latest.id;
+        state = validateJob(latest); state.id = latest.id;
         state.scope = 'conversation'; state.retryAt = null;
         state.batches = state.batches.map(item => batch(item.ids));
         for (const thread of state.threads) Object.assign(thread, {cursor:null, seenTokens:[], complete:false, pages:0, scanned:0, error:null});
@@ -424,7 +425,7 @@
       await exclusive(async () => {
         await CollectionStore.clearReplies();
         state = null; previewId = null; stop = false;
-        source.value = ''; checkpointFile.value = '';
+        source.value = '';
         start.value = '2022-04-01'; end.value = today;
         q('reply-page-size').value = '500'; q('reply-budget').value = '1';
         q('reply-auto-resume').checked = true; q('skip-zero-replies').checked = false;
@@ -439,7 +440,7 @@
   async function collect() {
     const latest = await CollectionStore.loadReplies();
     if (!latest || latest.id !== state?.id) throw new Error('The current session job changed. Choose the file you want to use.');
-    state = validateCheckpoint(latest); state.id = latest.id; stop = false; running = true;
+    state = validateJob(latest); state.id = latest.id; stop = false; running = true;
     document.dispatchEvent(new CustomEvent('twitt:reply-running', {detail: true}));
     const budget = Number(q('reply-budget').value);
     const automatic = q('reply-auto-resume').checked;
@@ -524,7 +525,7 @@
       }
       await save();
     } catch (error) {
-      state.status = 'paused_error'; state.message = error.message + ' Stopped before another request. Download a checkpoint before refreshing or closing this tab.';
+      state.status = 'paused_error'; state.message = error.message + ' Stopped before another request. Export your results before refreshing or closing this tab.';
       try { await save(); } catch { /* Keep the in-memory state downloadable if browser storage is full. */ }
     } finally {
       if (calls > 0 && state.reporting) {
@@ -555,7 +556,7 @@
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
         if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry this action.');
-        state = validateCheckpoint(latest); state.id = latest.id;
+        state = validateJob(latest); state.id = latest.id;
         const thread = state.batches.find(item => !item.complete && item.error?.code === 'cursor_invalid');
         if (!thread) return;
         thread.cursor = null; thread.seenTokens = []; thread.error = null;
@@ -588,7 +589,7 @@
       await exclusive(async () => {
         const latest = await CollectionStore.loadReplies();
         if (!latest || latest.id !== state.id) throw new Error('The current session job changed. Retry saving.');
-        state = validateCheckpoint(latest); state.id = latest.id;
+        state = validateJob(latest); state.id = latest.id;
         state.replySheet ||= {};
         await TwittSheets.writeTable(exportTitle(state), exportTable(), state.replySheet, token, save, message => { status.textContent = message; });
         await save();
@@ -605,6 +606,7 @@
   let reportingWorkbookId = null;
   const reportStatus = q('report-status');
   function renderReporting() {
+    q('reporting-options').hidden = !state;
     const busy = running || exporting || initialBusy;
     q('connect-reporting').disabled = busy || !state;
     q('retry-reporting').disabled = busy || !state?.reporting?.retrievedAt;
@@ -620,7 +622,7 @@
   async function syncReport() {
     if (!state?.reporting?.retrievedAt) return;
     try {
-      if (!reportingToken) throw new Error('Reconnect automatic reporting to upload this checkpoint’s report.');
+      if (!reportingToken) throw new Error('Reconnect automatic reporting to upload this job’s report.');
       reportStatus.textContent = 'Updating Data Reporting Workbook…';
       await TwittSheets.writeReport(state, exportTable(), reportingToken, save);
       reportStatus.textContent = `Report saved in ${state.reporting.tab}. Counts include all replies collected so far; status: ${state.status}.`;
