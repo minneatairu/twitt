@@ -101,7 +101,9 @@ with sync_playwright() as p:
     assert summary[2:8] == ['#solar', '2024-06-01 – 2024-06-30', 2, 1, 3, 'paused_budget'], summary
     assert summary[1].endswith('Z')
     assert summary[8] == 1
-    assert '0 reported replies' in cells["'Logs'!A1"][0][-1]
+    assert '0 reported replies' in cells["'Logs'!A1"][0][8]
+    assert cells["'Logs'!A1"][0][9] == 'Model name'
+    assert summary[9] == 'Unclassified'
     assert 'A reply' not in json.dumps(cells)
     assert 'Selected reply' not in json.dumps(cells)
     # Simulate the earlier workbook schema and verify the unused column migrates safely.
@@ -111,7 +113,8 @@ with sync_playwright() as p:
     page.wait_for_function('() => document.getElementById("report-status").textContent.includes("status: complete")')
     assert len(logs) == 2, 'Resuming updates one log row'
     assert logs[1][4:8] == [2, 2, 4, 'complete']
-    assert len(logs[1]) == 9 and logs[1][8] == 1
+    assert len(logs[1]) == 10 and logs[1][8] == 1
+    assert logs[1][9] == 'Unclassified'
     assert 'Result tab' not in cells["'Logs'!A1"][0]
     assert len(sheets) == 1, 'Resuming only updates Logs'
     page.on('dialog', lambda dialog: dialog.accept())

@@ -166,3 +166,16 @@ If Google authorization expires or an upload fails, replies/cursors remain avail
 To obtain the Excel workbook, open **Data Reporting Workbook** in Google Sheets and choose **File → Download → Microsoft Excel (.xlsx)**. The downloaded file is a snapshot; Google Sheets remains the automatically updated workbook. Google Drive API and Sheets API must both be enabled. Browser regression: `APP_BASE_URL=http://127.0.0.1:8000 python3 tests/reporting_browser.py` (simulated Google/X APIs).
 
 Reply workload cards include the number of uploaded initial posts whose `replies` count is explicitly zero. Missing or invalid counts are excluded. The Data Reporting Workbook records the same count in the **# of Initial posts with 0 reported replies** Logs column; it includes those rows whether or not the zero-reply skip option is enabled. Existing log columns retain their positions; older log rows have no value in the new column until that job is saved again.
+
+Logs appends a **Model name** column using the reporting query and original search month (not the reply retrieval window). These are research sampling labels from the study's mapping, not a claim about the model discussed by every post:
+
+| Label | Original search months (inclusive) | Recognized terms (case insensitive) |
+| --- | --- | --- |
+| DALL·E 2 | April–July 2022 | #dalle2 |
+| DALL·E 3 | October 2023–January 2024 | #dalle3, DALL-E 3 |
+| GPT-4o Image Generation | March–June 2025 | 4o image generation, ChatGPT images, #gptimages, #chatgptimages |
+| GPT Image 1.5 | July–October 2025 | ChatGPT images, #gptimages, #chatgptimages |
+| ChatGPT Images 2.0 | April–July 2026 | ChatGPT images, #gptimages, #chatgptimages |
+| ChatGPT Images 2.5 | September 2026 | ChatGPT images, #gptimages, #chatgptimages |
+
+Unmatched query/month combinations log **Unclassified**. Hashtag matching respects token boundaries and ignores excluded terms. Labeling only changes log output; queries, dates, reply results, and counts are unchanged. Existing rows receive their label when that job's report is next updated; older unrelated rows are not rewritten. Validate with `node tests/report_models.cjs`.

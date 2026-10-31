@@ -138,6 +138,24 @@
       if (offset<values.length) await new Promise(resolve => setTimeout(resolve,1100));
     }
   }
+  function reportingModel(term, month) {
+    // Research sampling labels only; these rules never change an X query.
+    const rules = [
+      {name:'DALL·E 2', from:'2022-04', through:'2022-07', terms:['#dalle2']},
+      {name:'DALL·E 3', from:'2023-10', through:'2024-01', terms:['#dalle3','dall-e 3']},
+      {name:'GPT-4o Image Generation', from:'2025-03', through:'2025-06', terms:['4o image generation','chatgpt images','#gptimages','#chatgptimages']},
+      {name:'GPT Image 1.5', from:'2025-07', through:'2025-10', terms:['chatgpt images','#gptimages','#chatgptimages']},
+      {name:'ChatGPT Images 2.0', from:'2026-04', through:'2026-07', terms:['chatgpt images','#gptimages','#chatgptimages']},
+      {name:'ChatGPT Images 2.5', from:'2026-09', through:'2026-09', terms:['chatgpt images','#gptimages','#chatgptimages']}
+    ];
+    const query = term.normalize('NFKC').toLowerCase().replace(/[“”]/g,'"').replace(/[‐‑–—·]/g,'-')
+      .replace(/(^|[\s(])-(?:"[^"]*"|[^\s)]+)/g,'$1 ').replace(/\s+/g,' ');
+    const matches = rules.filter(rule => month >= rule.from && month <= rule.through && rule.terms.some(alias => {
+      const literal = alias.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      return new RegExp('(?<![\\p{L}\\p{N}_#-])' + literal + '(?![\\p{L}\\p{N}_])','u').test(query);
+    }));
+    return matches.length === 1 ? matches[0].name : 'Unclassified';
+  }
   const reportHeaders = ['Retrieval date and time (UTC)', 'Search Term', 'Search month (UTC start–end)', '# of Initial posts loaded', '# of Replies retrieved', 'Total records (replies + initial posts)', 'Reply search status'];
   async function prepareReporting(token) {
     const query = "name = 'Data Reporting Workbook' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false and 'me' in owners";
@@ -183,9 +201,9 @@
     const rows = logs.values || [];
     const existing = rows.findIndex(row => row[0] === key);
     const row = existing >= 1 ? existing + 1 : Math.max(2,rows.length+1);
-    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,zeroReplyHeader]]});
-    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:I") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
-    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,zeroReplies]]});
+    await request('/' + id + '/values/' + encodeURIComponent("'Logs'!A1") + '?valueInputOption=RAW', token, 'PUT', {values:[['Reply job ID',...reportHeaders,zeroReplyHeader,'Model name']]});
+    const logPath = existing >= 1 ? encodeURIComponent("'Logs'!A" + row) + '?valueInputOption=RAW' : encodeURIComponent("'Logs'!A:J") + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
+    await request('/' + id + '/values/' + logPath, token, existing >= 1 ? 'PUT' : 'POST', {values:[[key,...summary,zeroReplies,reportingModel(report.term,report.month)]]});
     report.savedAt = new Date().toISOString();
     await checkpoint();
   }
