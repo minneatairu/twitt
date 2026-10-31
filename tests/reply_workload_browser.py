@@ -34,7 +34,7 @@ with sync_playwright() as p:
     assert page.locator('#reply-csv-count').inner_text() == '10'
     assert '2 of 5' in page.locator('#reply-csv-count-note').inner_text()
     assert page.locator('#reply-min-calls').inner_text() == '1'
-    assert 'additional pages may require more' in page.locator('#reply-min-calls-note').inner_text()
+    assert page.locator('#reply-min-calls-note').count() == 0
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['batches'][0]['ids'] == ['100','300','400']
     page.wait_for_function("() => !document.getElementById('run-replies').disabled")
