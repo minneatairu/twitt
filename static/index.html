@@ -34,16 +34,16 @@
 <div><span>Replies reported in uploaded CSV</span><strong id="reply-csv-count">Unavailable</strong><small id="reply-csv-count-note"></small></div>
 <div><span>Minimum remaining API calls</span><strong id="reply-min-calls">0</strong><small id="reply-min-calls-note">Additional pages may require more calls</small></div>
 <div><span>Posts with 0 reported replies</span><strong id="reply-zero-count">0</strong><small>From the uploaded CSV; missing counts are not zero</small></div>
-</div><p id="reply-plan" class="estimate" role="status"></p><label for="reply-budget">Maximum API calls this run (failed calls also count)</label><select id="reply-budget"><option value="1" selected>1 call · review before continuing</option><option value="5">5 calls</option><option value="20">20 calls</option><option value="0">Continue until complete or blocked</option></select>
+</div><label for="reply-budget">Maximum API calls this run (failed calls also count)</label><select id="reply-budget"><option value="1" selected>1 call · review before continuing</option><option value="5">5 calls</option><option value="20">20 calls</option><option value="0">Continue until complete or blocked</option></select>
 <label class="checkbox-label"><input id="reply-auto-resume" type="checkbox" checked> Wait and resume automatically when X supplies a rate-limit reset time</label>
 <div class="reply-actions"><button id="run-replies" type="button">Start / resume replies</button><button id="pause-replies" class="secondary" type="button" disabled>Pause after current request</button></div>
 <button id="restart-reply-cursor" class="secondary" type="button" hidden>Restart rejected batch cursor</button>
 <div class="reply-actions"><button id="download-combined" class="secondary" type="button">Download unique replies CSV</button><button id="save-replies-drive" class="secondary" type="button">Save replies to Google Drive</button><button id="download-reply-checkpoint" class="secondary" type="button">Download checkpoint</button></div></div>
 <fieldset id="reporting-options" hidden><legend>Optional: Data Reporting Workbook</legend>
-<p class="hint">Connect once per session to automatically log each reply-search run in Google Sheets, in Twitter Research. Each job has a month/year result tab; resuming updates its counts. Download the workbook from Google Sheets with File → Download → Microsoft Excel (.xlsx).</p>
+
 <label for="report-term">Original search term</label><input id="report-term" type="text" maxlength="1024" placeholder="e.g. #solar">
 <label for="report-month">Original search month</label><input id="report-month" type="month" min="2006-03">
-<p class="hint">Use the original initial-post search month, not the reply date window. Initial posts loaded counts the unique posts in your uploaded CSV.</p>
+
 <button id="connect-reporting" type="button" class="secondary">Connect automatic reporting</button>
 <button id="retry-reporting" type="button" class="secondary" hidden>Retry report upload</button>
 <a id="open-reporting" class="sheet-link" target="_blank" rel="noopener noreferrer" hidden>Open Data Reporting Workbook ↗</a>

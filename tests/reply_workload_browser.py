@@ -27,9 +27,7 @@ with sync_playwright() as p:
         page.wait_for_function("() => !document.getElementById('reply-controls').hidden")
     page.locator('#skip-zero-replies').check()
     upload(source)
-    plan = page.locator('#reply-plan').inner_text()
-    assert 'Reported replies total: 10' in plan and '2 with unknown' in plan
-    assert '2 posts skipped' in plan and 'minimum 1 more API calls' in plan
+    assert page.locator('#reply-plan').count() == 0
     assert calls == []
     assert page.locator('#reply-loaded-count').inner_text() == '5'
     assert page.locator('#reply-zero-count').inner_text() == '2'
@@ -40,9 +38,8 @@ with sync_playwright() as p:
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['batches'][0]['ids'] == ['100','300','400']
     page.wait_for_function("() => !document.getElementById('run-replies').disabled")
-    assert '2 posts skipped' in page.locator('#reply-plan').inner_text()
     page.locator('#run-replies').click()
-    page.wait_for_function("() => document.getElementById('reply-plan').textContent.includes('1 calls attempted') && document.getElementById('run-replies').disabled && !document.getElementById('clear-replies').disabled")
+    page.wait_for_function("() => document.getElementById('reply-min-calls').textContent === '0' && document.getElementById('run-replies').disabled && !document.getElementById('clear-replies').disabled")
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert len(calls) == 1
     assert page.locator('#reply-csv-count').inner_text() == '10'
@@ -55,7 +52,7 @@ with sync_playwright() as p:
     assert 'reply_collection_status' not in text
     assert 'skipped_zero_reported_replies' in page.locator('#reply-summary').inner_text()
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
-    assert 'minimum 0 more API calls' in page.locator('#reply-plan').inner_text()
+    assert page.locator('#reply-min-calls').inner_text() == '0'
     page.locator('#clear-replies').click()
     page.wait_for_function("() => document.getElementById('reply-controls').hidden")
     page.locator('#skip-zero-replies').check()
@@ -63,7 +60,7 @@ with sync_playwright() as p:
     assert page.locator('#run-replies').is_disabled()
     assert page.locator('#reply-csv-count').inner_text() == '0'
     page.wait_for_function("() => !document.getElementById('clear-replies').disabled")
-    assert 'minimum 0 more API calls' in page.locator('#reply-plan').inner_text()
+    assert page.locator('#reply-min-calls').inner_text() == '0'
     assert len(calls) == 1
     page.locator('#clear-replies').click()
     page.wait_for_function("() => document.getElementById('reply-controls').hidden")
@@ -71,7 +68,6 @@ with sync_playwright() as p:
     saved = page.evaluate('() => CollectionStore.loadReplies()')
     assert saved['skipZeroReplies'] is False
     assert saved['batches'][0]['ids'] == ['100','300','400','500']
-    assert '0 posts skipped' in page.locator('#reply-plan').inner_text()
     page.locator('#clear-replies').click()
     page.wait_for_function("() => document.getElementById('reply-controls').hidden")
     upload(b'id,conversation_id,text\n100,100,No count column\n')

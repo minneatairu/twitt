@@ -130,19 +130,6 @@
     if (skipped(post, state)) return [];
     return state.scope === 'conversation' ? thread.replies : thread.replies.filter(reply => reply.parent_post_id === post.id);
   }
-  function workload(job) {
-    const counts = job.posts.map(post => reportedReplies(post, job.headers));
-    const total = counts.reduce((sum, value) => sum + BigInt(value ?? 0), 0n);
-    const zeros = counts.filter(value => value === 0).length;
-    const positive = counts.filter(value => value > 0).length;
-    const unknown = counts.filter(value => value === null).length;
-    const collected = job.threads.reduce((sum, thread) => sum + thread.replies.length, 0);
-    const unfinished = job.batches.filter(item => !item.complete).length;
-    return `${job.posts.length} posts · ${positive} with reported replies · ${zeros} with zero · ${unknown} with unknown counts. Reported replies total: ${total}${unknown ? ' (known counts only)' : ''}. ` +
-      `${job.skipZeroReplies ? zeros : 0} posts skipped because their uploaded reply count is zero. ` +
-      `${job.batches.length} search batches · minimum ${unfinished} more API calls · ${job.attempts} calls attempted · ${collected} unique replies collected (${job.scope === 'conversation' ? 'whole conversations' : 'legacy direct replies'}). ` +
-      `Each call requests up to ${job.pageSize} results across a batch. Exact calls are unknown until X finishes pagination; other thread replies and failed attempts can add calls. CSV counts are direct-reply counts at collection time; whole-conversation results may exceed them. Unknown language is accepted using X’s lang:en search filter. Only conversation membership is required for matching in whole-conversation mode.`;
-  }
   function makeThreads(posts) {
     return [...new Set(posts.map(post => post.conversationId))].map(id => ({id, cursor: null, seenTokens: [],
       complete: false, pages: 0, scanned: 0, replies: [], error: null}));
@@ -301,7 +288,6 @@
       const remainingCalls = state.batches.filter(batch => !batch.complete).length;
       q('reply-min-calls').textContent = remainingCalls.toLocaleString('en-US');
       q('reply-min-calls-note').textContent = remainingCalls ? 'At least one call per unfinished batch; additional pages may require more' : 'No unfinished search batches';
-      q('reply-plan').textContent = workload(state);
     }
     if (state) status.textContent = state.message + `\nFixed UTC window: ${state.window.start} through ${state.window.end} (exclusive end). Page size: ${state.pageSize}.`;
     q('restart-reply-cursor').hidden = !state?.batches.some(thread => !thread.complete && thread.error?.code === 'cursor_invalid');
@@ -441,7 +427,7 @@
         start.value = '2022-04-01'; end.value = today;
         q('reply-page-size').value = '500'; q('reply-budget').value = '1';
         q('reply-auto-resume').checked = true; q('skip-zero-replies').checked = false;
-        q('reply-plan').textContent = ''; q('reply-preview').replaceChildren();
+        q('reply-preview').replaceChildren();
         status.classList.remove('error');
         status.textContent = 'Current replies cleared. Import a CSV to start a new job. No API calls have been made.';
         render();
